@@ -1,0 +1,59 @@
+@import "vazirmatn/Vazirmatn-font-face.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-slate-50 text-slate-800 font-sans antialiased; font-family: "Vazirmatn", Tahoma, sans-serif; }
+input, textarea, select { font-family: inherit; }
+.ltr { direction: ltr; text-align: left; unicode-bidi: plaintext; }
+
+/* AI actions: animated neon gradient with floating sparkles. Disabled buttons stay plain. */
+.ai-btn {
+  position: relative;
+  color: #fff !important;
+  background: linear-gradient(120deg, #7c3aed, #db2777, #0ea5e9, #7c3aed) !important;
+  background-size: 300% 300% !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  animation: ai-glow 3s ease-in-out infinite, ai-shift 6s linear infinite;
+}
+.ai-btn::before,
+.ai-btn::after {
+  content: "✦";
+  position: absolute;
+  pointer-events: none;
+  font-size: 11px;
+  line-height: 1;
+  color: #fde68a;
+  text-shadow: 0 0 6px #fde68a, 0 0 12px #f472b6;
+  opacity: 0;
+  animation: ai-spark 1.8s ease-out infinite;
+}
+.ai-btn::before { top: -7px; inset-inline-start: 14%; }
+.ai-btn::after { content: "✧"; bottom: -7px; inset-inline-end: 12%; animation-delay: 0.9s; }
+.ai-btn:disabled {
+  animation: none;
+  box-shadow: none !important;
+  background: #cbd5e1 !important;
+  border-color: transparent !important;
+  color: #475569 !important;
+}
+.ai-btn:disabled::before,
+.ai-btn:disabled::after { display: none; }
+
+@keyframes ai-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.5), 0 0 22px rgba(236, 72, 153, 0.25); }
+  50% { box-shadow: 0 0 18px rgba(168, 85, 247, 0.9), 0 0 40px rgba(236, 72, 153, 0.55); }
+}
+@keyframes ai-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+@keyframes ai-spark {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.4) rotate(0deg); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translate(6px, -18px) scale(1.25) rotate(120deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-btn, .ai-btn::before, .ai-btn::after { animation: none; }
+}
