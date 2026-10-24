@@ -1,0 +1,1 @@
+ALTER TABLE article_templates ADD COLUMN internal_link_rules TEXT NOT NULL DEFAULT 'فقط به URLهای واقعی و منتشرشده که برنامه صریحاً ارائه کرده لینک بده. URL یا نامک را هرگز حدس نزن. اگر لینک تأییدشده نداریم، لینک داخلی نگذار.';

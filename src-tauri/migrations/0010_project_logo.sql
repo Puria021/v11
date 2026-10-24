@@ -1,0 +1,1 @@
+ALTER TABLE projects ADD COLUMN logo_data_url TEXT NOT NULL DEFAULT '';
