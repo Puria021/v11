@@ -110,8 +110,8 @@ pub fn shingle_similarity(a: &str, b: &str) -> f64 {
 }
 
 // Range instead of an exact count: models rarely hit an exact number, and exact-count failures wasted whole articles.
-pub const KEYWORD_MIN_USES: usize = 22;
-pub const KEYWORD_MAX_USES: usize = 28;
+pub const KEYWORD_MIN_USES: usize = 10;
+pub const KEYWORD_MAX_USES: usize = 40;
 const LEAD_WORDS: usize = 150;
 const PARAGRAPH_WARN_WORDS: usize = 100;
 const PARAGRAPH_MAX_WORDS: usize = 150;
