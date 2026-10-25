@@ -13,6 +13,7 @@ import Products from "./pages/Products";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import CampaignWizard from "./pages/CampaignWizard";
 import { Badge } from "./components/ui";
+import WhatsNew from "./components/WhatsNew";
 
 const NAV = [
   { to: "/", label: "داشبورد", end: true },
@@ -50,6 +51,7 @@ export default function App() {
 
   return (
     <div className="flex h-full">
+      <WhatsNew />
       <aside className="flex w-60 shrink-0 flex-col border-e border-slate-200 bg-white">
         <div className="px-5 py-5 text-lg font-bold text-brand-700">مدیریت مقالات</div>
         <nav className="flex-1 space-y-1 px-3">
