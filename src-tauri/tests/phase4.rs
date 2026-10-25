@@ -43,10 +43,10 @@ fn hash(s: &str) -> usize {
 fn good_article(keyword: &str, same_body: bool) -> Value {
     let seed = if same_body { 1 } else { hash(keyword) };
     let filler = |from: usize, n: usize| (from..from + n).map(|i| word(seed * 13 + i)).collect::<Vec<_>>().join(" ");
-    // QC rules: the keyword phrase 27 times, once within the first 150 words, short paragraphs,
+    // QC rules: the keyword phrase 25 times, once within the first 150 words, short paragraphs,
     // and two external links (the output is rejected otherwise).
     let mut html = format!("<h1>تیتر</h1><p>در این مقاله درباره {keyword} صحبت می‌کنیم. {}</p><h2>بخش اول</h2>", filler(0, 12));
-    for i in 1..27 {
+    for i in 1..25 {
         if i == 13 {
             html.push_str("<h2>بخش دوم</h2>");
         }

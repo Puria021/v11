@@ -1,5 +1,7 @@
 -- Exactly two fixed templates: one for articles (tpl_default) and one for product descriptions (tpl_product).
 -- Custom templates are removed; campaigns always use the article template.
+-- The article template row must exist before campaigns are pointed at it (older databases may lack it).
+INSERT OR IGNORE INTO article_templates (id, name) VALUES ('tpl_default', 'قالب مقاله');
 UPDATE article_templates SET name = 'قالب مقاله' WHERE id = 'tpl_default';
 
 INSERT OR IGNORE INTO article_templates (

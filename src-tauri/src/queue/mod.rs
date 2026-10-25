@@ -38,12 +38,8 @@ pub struct NewJob {
 /// Adds a job unless an active job with the same (type, plan) already exists.
 pub async fn enqueue(state: &AppState, j: NewJob) -> AppResult<Option<i64>> {
     let dedupe = format!("{}:{}", j.jtype, j.plan_id);
-    // For WordPress jobs, read the upload schedule before INSERT so the scheduler can
-    // never claim a job in the gap between enqueue and setting run_after.
-    let run_after: Option<String> = if j.jtype == "upload_wp" {
-        sqlx::query_as::<_, (Option<String>,)>("SELECT upload_at FROM article_plans WHERE id=?")
-            .bind(&j.plan_id).fetch_optional(&state.db).await?.and_then(|r| r.0)
-    } else { None };
+    // Uploads run as soon as they are queued; upload_at is the WordPress publish date, not a delay.
+    let run_after: Option<String> = None;
     let r = sqlx::query(
         "INSERT OR IGNORE INTO jobs (queue, type, project_id, campaign_id, plan_id, max_retries, dedupe_key, run_after)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

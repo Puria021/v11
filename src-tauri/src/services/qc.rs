@@ -109,8 +109,9 @@ pub fn shingle_similarity(a: &str, b: &str) -> f64 {
     inter / ((sa.len() + sb.len()) as f64 - inter)
 }
 
-pub const KEYWORD_MIN_USES: usize = 20;
-pub const KEYWORD_MAX_USES: usize = 35;
+// Range instead of an exact count: models rarely hit an exact number, and exact-count failures wasted whole articles.
+pub const KEYWORD_MIN_USES: usize = 22;
+pub const KEYWORD_MAX_USES: usize = 28;
 const LEAD_WORDS: usize = 150;
 const PARAGRAPH_WARN_WORDS: usize = 100;
 const PARAGRAPH_MAX_WORDS: usize = 150;
@@ -389,12 +390,12 @@ mod tests {
     }
 
     #[test]
-    fn keyword_must_be_used_27_to_32_times_as_a_whole_phrase() {
+    fn keyword_must_be_used_within_bounds_as_a_whole_phrase() {
         let f = faq();
         let few = validate(&input(&good_html(KEYWORD_MIN_USES - 1), &f, &[]));
-        assert!(few.errors.iter().any(|e| e.contains("27 تا 32")), "{:?}", few.errors);
+        assert!(few.errors.iter().any(|e| e.contains(&format!("{KEYWORD_MIN_USES} تا {KEYWORD_MAX_USES}"))), "{:?}", few.errors);
         let many = validate(&input(&good_html(KEYWORD_MAX_USES + 1), &f, &[]));
-        assert!(many.errors.iter().any(|e| e.contains("27 تا 32")), "{:?}", many.errors);
+        assert!(many.errors.iter().any(|e| e.contains(&format!("{KEYWORD_MIN_USES} تا {KEYWORD_MAX_USES}"))), "{:?}", many.errors);
         assert!(validate(&input(&good_html(KEYWORD_MAX_USES), &f, &[])).errors.is_empty());
 
         // Only the partial phrase is present: it does not count.

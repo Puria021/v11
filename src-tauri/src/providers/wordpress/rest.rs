@@ -11,7 +11,7 @@ const MAX_PAGES: u32 = 30;
 
 /// Authentication for WordPress requests.
 /// - With a username: HTTP Basic (Application Password), the original behaviour.
-/// - Without a username: the MyArticleManager Bridge token, sent in the X-MAM-Token header.
+/// - Without a username: the SEO Master Bridge token, sent in the X-MAM-Token header.
 trait WithAuth {
     fn with_auth(self, c: &RestWordPressClient) -> Self;
 }
@@ -44,7 +44,7 @@ impl RestWordPressClient {
         let mut b = reqwest::Client::builder()
             .timeout(timeout)
             .connect_timeout(Duration::from_secs(15))
-            .user_agent("MyArticleManager/0.1");
+            .user_agent("MyArticleManager-Bridge-Client/1.3");
         b = crate::services::network::apply_http(b, proxy)?;
         let http = b
             .build()
@@ -57,7 +57,7 @@ impl RestWordPressClient {
         })
     }
 
-    /// Optional companion bridge: requires the MyArticleManager Bridge WordPress plugin.
+    /// Optional companion bridge: requires the SEO Master Bridge WordPress plugin.
     pub async fn list_products(&self, search: &str, page: i64) -> Result<Value, ProviderError> {
         let path = format!("myarticle/v1/products?page={}&per_page=20&search={}", page, url::form_urlencoded::byte_serialize(search.as_bytes()).collect::<String>());
         Ok(self.get(&path).await?.0)
@@ -67,8 +67,8 @@ impl RestWordPressClient {
         self.post_json(&format!("myarticle/v1/products/{id}/description"), &serde_json::json!({"description": description})).await.map(|_| ())
     }
 
-    pub async fn update_rank_math(&self, id: i64, title: &str, description: &str) -> Result<(), ProviderError> {
-        self.post_json(&format!("myarticle/v1/rankmath/{id}"), &serde_json::json!({"title": title, "description": description})).await.map(|_| ())
+    pub async fn update_rank_math(&self, id: i64, keyword: &str, title: &str, description: &str) -> Result<(), ProviderError> {
+        self.post_json(&format!("myarticle/v1/rankmath/{id}"), &serde_json::json!({"keyword": keyword, "title": title, "description": description})).await.map(|_| ())
     }
 
     /// Writes the Rank Math SEO fields as post meta through the core REST API, then reads them back.
@@ -87,6 +87,9 @@ impl RestWordPressClient {
     }
 
     pub async fn published_posts(&self) -> Result<Vec<(String, String)>, ProviderError> {
+        if self.user.trim().is_empty() {
+            return self.bridge_published_posts().await;
+        }
         let items = self.get_all("wp/v2/posts?status=publish&_fields=id,title,link,slug").await?;
         Ok(items.into_iter().filter_map(|v| {
             let name = v.pointer("/title/rendered")?.as_str()?.to_string();
@@ -98,8 +101,62 @@ impl RestWordPressClient {
         }).collect())
     }
 
+    /// Bridge mode: the plugin lists published posts with their titles and permalinks.
+    async fn bridge_published_posts(&self) -> Result<Vec<(String, String)>, ProviderError> {
+        let mut out = Vec::new();
+        for page in 1..=MAX_PAGES {
+            let (v, _) = self.get(&format!("myarticle/v1/posts?page={page}&per_page=100")).await?;
+            let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+            let pages = v.get("pages").and_then(|p| p.as_u64()).unwrap_or(1);
+            for it in &items {
+                let name = it.get("title").and_then(|x| x.as_str());
+                let link = it.get("url").and_then(|x| x.as_str());
+                if let (Some(name), Some(link)) = (name, link) {
+                    if self.same_site(link) {
+                        out.push((name.to_string(), link.to_string()));
+                    }
+                }
+            }
+            if items.is_empty() || u64::from(page) >= pages {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    fn same_site(&self, link: &str) -> bool {
+        let (Ok(parsed), Ok(site)) = (url::Url::parse(link), url::Url::parse(&self.base)) else {
+            return false;
+        };
+        matches!(parsed.scheme(), "http" | "https") && parsed.host_str() == site.host_str()
+    }
+
     fn url(&self, path: &str) -> String {
         if path.is_empty() { self.base.clone() } else { format!("{}/{}", self.base, path) }
+    }
+
+    /// Diagnostic: public REST ping. Some(json) means the REST route is reachable.
+    pub async fn rest_ping(&self) -> Option<Value> {
+        let resp = self.http.get(self.url("myarticle/v1/ping")).header("Accept", "application/json").send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        resp.json::<Value>().await.ok()
+    }
+
+    /// Diagnostic: bridge ping through admin-ajax.php (WordPress core, not REST).
+    pub async fn admin_ajax_ping(&self) -> Option<Value> {
+        let root = self.base.trim_end_matches('/').trim_end_matches("/wp-json").to_string();
+        let rb = self
+            .http
+            .get(format!("{root}/wp-admin/admin-ajax.php?action=mamb_ping"))
+            .with_auth(self)
+            .header("Accept", "application/json");
+        let resp = rb.send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        resp.json::<Value>().await.ok()
     }
 
     async fn get(&self, path: &str) -> Result<(Value, HeaderMap), ProviderError> {
@@ -124,10 +181,19 @@ impl RestWordPressClient {
                 .and_then(|m| m.as_str())
                 .map(|m| format!(" ({})", m.chars().take(160).collect::<String>()))
                 .unwrap_or_default();
+            let is_html = headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.contains("text/html"))
+                .unwrap_or(false);
             let mut err = match status.as_u16() {
+                401 | 403 if is_html => ProviderError::new(
+                    ProviderErrorKind::AuthInvalid,
+                    format!("سرور به‌جای پاسخ وردپرس یک صفحه‌ی HTML داد (کد {}). احتمالاً فایروال یا امنیت هاست درخواست را مسدود کرده است.", status.as_u16()),
+                ),
                 401 | 403 => ProviderError::new(
                     ProviderErrorKind::AuthInvalid,
-                    "نام کاربری یا Application Password نامعتبر است (یا دسترسی کافی ندارد).",
+                    format!("نام کاربری یا توکن/Application Password نامعتبر است (کد {}).", status.as_u16()),
                 ),
                 404 => ProviderError::new(
                     ProviderErrorKind::NotFound,
@@ -302,9 +368,12 @@ impl WordPressClient for RestWordPressClient {
 
     async fn create_post(&self, p: NewPost) -> Result<PostRef, ProviderError> {
         let mut body = serde_json::json!({
-            "title": p.title, "content": p.content, "excerpt": p.excerpt, "slug": p.slug, "status": "draft",
+            "title": p.title, "content": p.content, "excerpt": p.excerpt, "slug": p.slug, "status": p.status,
             "categories": p.categories, "tags": p.tags,
         });
+        if let Some(d) = &p.date_gmt {
+            body["date_gmt"] = serde_json::json!(d);
+        }
         if let Some(m) = p.featured_media {
             body["featured_media"] = serde_json::json!(m);
         }

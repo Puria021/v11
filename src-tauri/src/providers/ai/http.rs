@@ -45,21 +45,26 @@ pub async fn send_json(req: reqwest::RequestBuilder) -> Result<Value, ProviderEr
     let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
 
     if !status.is_success() {
-        let extra = provider_message(&value).map(|m| format!(" ({m})")).unwrap_or_default();
-        let mut err = match status.as_u16() {
-            401 | 403 => ProviderError::new(ProviderErrorKind::AuthInvalid, "کلید API نامعتبر است یا دسترسی ندارد."),
-            404 => ProviderError::new(ProviderErrorKind::NotFound, format!("آدرس API یا نام مدل پیدا نشد{extra}")),
-            429 => ProviderError::new(ProviderErrorKind::RateLimited, "محدودیت تعداد درخواست یا اعتبار سرویس؛ کمی بعد دوباره تلاش کنید."),
-            400 | 422 => ProviderError::new(ProviderErrorKind::InvalidResponse, format!("درخواست توسط سرویس رد شد{extra}")),
-            s if s >= 500 => ProviderError::new(ProviderErrorKind::Remote, format!("خطای سمت سرویس (کد {s}).")),
-            s => ProviderError::new(ProviderErrorKind::Remote, format!("پاسخ نامنتظره از سرویس (کد {s}).")),
-        };
-        err.status = Some(status.as_u16());
-        err.retry_after_secs = retry_after;
-        err.body = Some(value);
-        return Err(err);
+        return Err(status_error(status, retry_after, value));
     }
     Ok(value)
+}
+
+/// Maps a non-success HTTP response to a provider error (shared by JSON and streamed calls).
+pub fn status_error(status: reqwest::StatusCode, retry_after: Option<u64>, value: Value) -> ProviderError {
+    let extra = provider_message(&value).map(|m| format!(" ({m})")).unwrap_or_default();
+    let mut err = match status.as_u16() {
+        401 | 403 => ProviderError::new(ProviderErrorKind::AuthInvalid, "کلید API نامعتبر است یا دسترسی ندارد."),
+        404 => ProviderError::new(ProviderErrorKind::NotFound, format!("آدرس API یا نام مدل پیدا نشد{extra}")),
+        429 => ProviderError::new(ProviderErrorKind::RateLimited, "محدودیت تعداد درخواست یا اعتبار سرویس؛ کمی بعد دوباره تلاش کنید."),
+        400 | 422 => ProviderError::new(ProviderErrorKind::InvalidResponse, format!("درخواست توسط سرویس رد شد{extra}")),
+        s if s >= 500 => ProviderError::new(ProviderErrorKind::Remote, format!("خطای سمت سرویس (کد {s}).")),
+        s => ProviderError::new(ProviderErrorKind::Remote, format!("پاسخ نامنتظره از سرویس (کد {s}).")),
+    };
+    err.status = Some(status.as_u16());
+    err.retry_after_secs = retry_after;
+    err.body = Some(value);
+    err
 }
 
 pub fn empty_reply() -> ProviderError {

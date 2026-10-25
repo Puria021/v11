@@ -25,6 +25,8 @@ pub struct CampaignView {
     pub secondary_count: i64,
     pub plan_count: i64,
     pub approved_count: i64,
+    /// Articles whose text and images are ready (or already drafted in WordPress).
+    pub complete_count: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +47,8 @@ const SELECT: &str = "SELECT c.id, c.project_id, p.name AS project_name, c.name,
   (SELECT COUNT(*) FROM keywords k WHERE k.campaign_id=c.id AND k.role='candidate' AND k.is_selected=1) AS selected_count,
   (SELECT COUNT(*) FROM keywords k WHERE k.campaign_id=c.id AND k.role='secondary') AS secondary_count,
   (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id) AS plan_count,
-  (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id AND EXISTS (SELECT 1 FROM article_titles t WHERE t.plan_id=a.id AND t.state='APPROVED')) AS approved_count
+  (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id AND EXISTS (SELECT 1 FROM article_titles t WHERE t.plan_id=a.id AND t.state='APPROVED')) AS approved_count,
+  (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id AND a.status IN ('READY_TO_UPLOAD','UPLOADING','DRAFT_CREATED')) AS complete_count
   FROM campaigns c JOIN projects p ON p.id = c.project_id";
 
 pub async fn list(state: &AppState, project_id: Option<&str>) -> AppResult<Vec<CampaignView>> {
@@ -66,6 +69,8 @@ pub async fn list(state: &AppState, project_id: Option<&str>) -> AppResult<Vec<C
 }
 
 pub async fn get(state: &AppState, id: &str) -> AppResult<CampaignView> {
+    // Campaigns created before activation get the fixed providers the first time they are opened.
+    let _ = super::license::attach_fixed_defaults(state).await;
     sqlx::query_as::<_, CampaignView>(&format!("{SELECT} WHERE c.id = ?"))
         .bind(id)
         .fetch_optional(&state.db)

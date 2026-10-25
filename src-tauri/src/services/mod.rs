@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod articles;
 pub mod backup;
+pub mod cache;
 pub mod campaigns;
 pub mod generation;
 pub mod image_providers;

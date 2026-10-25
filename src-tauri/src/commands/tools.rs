@@ -8,8 +8,8 @@ use crate::state::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn upload_to_wordpress(state: State<'_, AppState>, plan_id: String) -> AppResult<()> {
-    upload::enqueue_upload(&state, &plan_id).await
+pub async fn upload_to_wordpress(state: State<'_, AppState>, plan_id: String, publish_now: Option<bool>) -> AppResult<()> {
+    upload::request_upload(&state, &plan_id, publish_now.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -65,4 +65,9 @@ pub async fn preview_backup(state: State<'_, AppState>, path: String) -> AppResu
 #[tauri::command]
 pub async fn import_backup(state: State<'_, AppState>, path: String, mode: String) -> AppResult<ImportResult> {
     backup::import(&state, &path, &mode).await
+}
+
+#[tauri::command]
+pub async fn clear_cache(state: State<'_, AppState>) -> AppResult<crate::services::cache::CacheReport> {
+    crate::services::cache::clear(&state).await
 }

@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 const JOB_MAX_RETRIES: i64 = 3;
-const WEBP_QUALITY: f32 = 82.0;
+const WEBP_QUALITY: f32 = 78.0;
 
 // ------------------------------------------------------------------ context & prompts
 
@@ -422,9 +422,16 @@ fn encode_watermarked_webp(bytes: &[u8], logo_data_url: &str) -> AppResult<Vec<u
         for pixel in faded.pixels_mut() { pixel.0[3] = ((pixel.0[3] as u16 * 65) / 100) as u8; }
         image::imageops::overlay(&mut picture, &faded, x as i64, y as i64);
     }
-    // Lossy WebP: much smaller than the lossless encoder of the `image` crate, visually near-identical.
+    // Lossy WebP. Fully opaque images are encoded without an alpha channel, which is noticeably smaller
+    // at the same visual quality; images with real transparency keep their alpha.
     let (w, h) = picture.dimensions();
-    let encoded = webp::Encoder::from_rgba(picture.as_raw(), w, h).encode(WEBP_QUALITY);
+    let opaque = picture.pixels().all(|p| p.0[3] == 255);
+    let encoded = if opaque {
+        let rgb = image::DynamicImage::ImageRgba8(picture).to_rgb8();
+        webp::Encoder::from_rgb(rgb.as_raw(), w, h).encode(WEBP_QUALITY)
+    } else {
+        webp::Encoder::from_rgba(picture.as_raw(), w, h).encode(WEBP_QUALITY)
+    };
     Ok(encoded.to_vec())
 }
 
@@ -687,14 +694,16 @@ async fn scalar(state: &AppState, sql: &str, id: &str) -> i64 {
 pub async fn progress(state: &AppState, campaign_id: &str) -> AppResult<Progress> {
     let c = campaigns::get(state, campaign_id).await?;
     let total = c.plan_count;
-    let images_enabled = match &c.template_id {
-        Some(t) => templates::get(state, t).await.map(|t| t.image_count > 0).unwrap_or(false),
-        None => false,
+    let image_count = match &c.template_id {
+        Some(t) => templates::get(state, t).await.map(|t| t.image_count).unwrap_or(0),
+        None => 0,
     };
+    let images_enabled = image_count > 0;
     let content = scalar(state, "SELECT COUNT(*) FROM article_contents x JOIN article_plans p ON p.id=x.plan_id WHERE p.campaign_id=?", campaign_id).await;
     // An article counts as built only when its text AND all of its images are ready.
     let complete = scalar(state, "SELECT COUNT(*) FROM article_plans WHERE campaign_id=? AND status IN ('READY_TO_UPLOAD','UPLOADING','DRAFT_CREATED')", campaign_id).await;
-    let images = scalar(state, "SELECT COUNT(DISTINCT i.plan_id) FROM article_images i JOIN article_plans p ON p.id=i.plan_id WHERE p.campaign_id=? AND i.local_path IS NOT NULL", campaign_id).await;
+    // Counted per image: with 3 images per article and 2 articles the total is 6.
+    let images = scalar(state, "SELECT COUNT(*) FROM article_images i JOIN article_plans p ON p.id=i.plan_id WHERE p.campaign_id=? AND i.local_path IS NOT NULL", campaign_id).await;
     let uploaded = scalar(state, "SELECT COUNT(*) FROM wordpress_posts w JOIN article_plans p ON p.id=w.plan_id WHERE p.campaign_id=? AND w.upload_status='UPLOADED'", campaign_id).await;
     let failed = scalar(state, "SELECT COUNT(*) FROM article_plans WHERE campaign_id=? AND status='FAILED'", campaign_id).await;
     let running = scalar(state, "SELECT COUNT(*) FROM jobs WHERE campaign_id=? AND status='PROCESSING'", campaign_id).await;
@@ -706,7 +715,7 @@ pub async fn progress(state: &AppState, campaign_id: &str) -> AppResult<Progress
         titles: Stage { done: c.approved_count, total },
         content: Stage { done: content, total },
         complete,
-        images: Stage { done: images, total: if images_enabled { total } else { 0 } },
+        images: Stage { done: images, total: if images_enabled { total * image_count } else { 0 } },
         wordpress: Stage { done: uploaded, total },
         images_enabled,
         failed,

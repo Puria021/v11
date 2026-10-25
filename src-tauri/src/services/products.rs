@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 pub struct ProductItem {
     pub id: i64,
     pub name: String,
+    #[serde(default)]
     pub sku: String,
     pub description: String,
+    #[serde(default)]
     pub short_description: String,
+    #[serde(default)]
     pub permalink: String,
 }
 

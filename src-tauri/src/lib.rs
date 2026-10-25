@@ -213,6 +213,7 @@ pub fn run() {
             commands::generation::get_queue_settings,
             commands::generation::update_queue_settings,
             commands::tools::upload_to_wordpress,
+            commands::tools::clear_cache,
             commands::tools::upload_campaign,
             commands::tools::set_plan_taxonomy,
             commands::tools::set_default_category,
@@ -226,5 +227,5 @@ pub fn run() {
             commands::tools::import_backup,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running MyArticleManager");
+        .expect("error while running SEO Master");
 }

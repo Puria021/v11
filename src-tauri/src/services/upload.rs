@@ -93,8 +93,8 @@ async fn is_uploaded(state: &AppState, plan_id: &str) -> AppResult<bool> {
     Ok(matches!(r, Some((ref s,)) if s == "UPLOADED"))
 }
 
-/// Sets upload time in UTC (ISO 8601) without publishing; schedules creation of a draft.
-/// Null clears the schedule. Existing queued jobs are adjusted while still pending.
+/// Sets the WordPress publish date (UTC ISO 8601). The article is still created as a draft
+/// unless it is published directly. Null clears the date. Uploads are never delayed by it.
 pub async fn set_schedule(state: &AppState, campaign_id: &str, plan_id: Option<&str>, upload_at: Option<&str>) -> AppResult<usize> {
     campaigns::get(state, campaign_id).await?;
     let at = upload_at.filter(|s| !s.trim().is_empty());
@@ -117,11 +117,19 @@ pub async fn set_schedule(state: &AppState, campaign_id: &str, plan_id: Option<&
     for (id,) in &ids {
         sqlx::query("UPDATE article_plans SET upload_at=? WHERE id=?")
             .bind(at).bind(id).execute(&state.db).await?;
-        sqlx::query("UPDATE jobs SET run_after=? WHERE plan_id=? AND type='upload_wp' AND status IN ('PENDING','RETRY_PENDING')")
-            .bind(at).bind(id).execute(&state.db).await?;
+        sqlx::query("UPDATE jobs SET run_after=NULL WHERE plan_id=? AND type='upload_wp' AND status IN ('PENDING','RETRY_PENDING')")
+            .bind(id).execute(&state.db).await?;
     }
     state.wake.notify_one();
     Ok(ids.len())
+}
+
+/// Queues an upload. `publish_now` selects direct publishing instead of a draft; it is stored on the plan
+/// so retries keep the same mode.
+pub async fn request_upload(state: &AppState, plan_id: &str, publish_now: bool) -> AppResult<()> {
+    sqlx::query("UPDATE article_plans SET publish_now=? WHERE id=?")
+        .bind(publish_now as i64).bind(plan_id).execute(&state.db).await?;
+    enqueue_upload(state, plan_id).await
 }
 
 pub async fn enqueue_upload(state: &AppState, plan_id: &str) -> AppResult<()> {
@@ -174,7 +182,7 @@ pub async fn enqueue_campaign(state: &AppState, campaign_id: &str, confirm: bool
     }
     let mut n = 0;
     for (id,) in ids {
-        match enqueue_upload(state, &id).await {
+        match request_upload(state, &id, false).await {
             Ok(()) => n += 1,
             Err(e) if e.code == "CONFLICT" || e.code == "DUPLICATE_BLOCKED" => {}
             Err(e) => return Err(e),
@@ -222,6 +230,10 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
     .await?
     .ok_or_else(|| AppError::validation("متن مقاله پیدا نشد."))?;
     let faq: Vec<FaqItem> = serde_json::from_str(&faq_json).unwrap_or_default();
+    let (publish_now, publish_at): (i64, Option<String>) = sqlx::query_as("SELECT publish_now, upload_at FROM article_plans WHERE id=?")
+        .bind(plan_id).fetch_one(&state.db).await?;
+    // upload_at is stored as UTC "YYYY-MM-DDTHH:MM:SS.mmmZ"; WordPress expects the GMT part without zone suffix.
+    let date_gmt = publish_at.as_deref().and_then(|s| s.get(..19)).map(str::to_string);
     let campaign = campaigns::get(state, &campaign_id).await?;
     let (schema, language, link_enabled) = match &campaign.template_id {
         Some(t) => templates::get(state, t).await.map(|t| (t.faq_schema, t.language, t.internal_linking)).unwrap_or((false, "fa".into(), false)),
@@ -332,6 +344,8 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
             generation::guard_cancel(state, job).await?;
             client
                 .create_post(NewPost {
+                    status: if publish_now != 0 { "publish" } else { "draft" },
+                    date_gmt,
                     title: title.clone(),
                     content: assemble_post_html(&final_content_html, &faq, schema, &language),
                     excerpt,
@@ -357,7 +371,7 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
         }
     };
     if !seo_stored {
-        if let Err(err) = client.update_rank_math(post.id, &meta_title, &meta_description).await {
+        if let Err(err) = client.update_rank_math(post.id, &keyword, &meta_title, &meta_description).await {
             eprintln!("Optional Rank Math companion sync failed for post {}: {:?}", post.id, err);
         }
     }

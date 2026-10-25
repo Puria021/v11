@@ -35,6 +35,22 @@ pub async fn status(state: &AppState) -> AppResult<LicenseStatus> {
 
 /// Stores the key, creates the fixed providers, and tests both connections. Activation succeeds only if
 /// the text AND the image test pass; otherwise the stored key is removed again.
+/// Fills the fixed providers into campaigns that were created before the license was activated.
+/// Safe to call repeatedly: it only touches campaigns whose provider is still empty.
+pub async fn attach_fixed_defaults(state: &AppState) -> AppResult<()> {
+    sqlx::query("UPDATE campaigns SET ai_provider_id = ? WHERE ai_provider_id IS NULL AND EXISTS (SELECT 1 FROM ai_providers WHERE id = ?)")
+        .bind(TEXT_PROVIDER_ID)
+        .bind(TEXT_PROVIDER_ID)
+        .execute(&state.db)
+        .await?;
+    sqlx::query("UPDATE campaigns SET image_provider_id = ? WHERE image_provider_id IS NULL AND EXISTS (SELECT 1 FROM image_providers WHERE id = ?)")
+        .bind(IMAGE_PROVIDER_ID)
+        .bind(IMAGE_PROVIDER_ID)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
 pub async fn activate(state: &AppState, api_key: &str) -> AppResult<()> {
     let key = api_key.trim();
     if key.is_empty() {
@@ -52,6 +68,7 @@ pub async fn activate(state: &AppState, api_key: &str) -> AppResult<()> {
                 .bind(ACTIVATED_KEY)
                 .execute(&state.db)
                 .await?;
+            attach_fixed_defaults(state).await?;
             Ok(())
         }
         (t, i) => {

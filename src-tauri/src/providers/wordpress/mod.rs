@@ -47,6 +47,10 @@ pub struct MediaRef {
 
 #[derive(Debug, Clone)]
 pub struct NewPost {
+    /// "draft" or "publish".
+    pub status: &'static str,
+    /// WordPress publish date in GMT, "YYYY-MM-DDTHH:MM:SS". None = WordPress default.
+    pub date_gmt: Option<String>,
     pub title: String,
     pub content: String,
     pub excerpt: String,

@@ -144,14 +144,14 @@ pub async fn save_connection(state: &AppState, input: SaveConnection) -> AppResu
         return Err(AppError::not_found("پروژه پیدا نشد."));
     }
     let api_url = normalize_api_url(&input.api_url)?;
-    // Username is optional: empty means the secret is the MyArticleManager Bridge token.
+    // Username is optional: empty means the secret is the SEO Master Bridge token.
     let username = input.username.trim().to_string();
     let key = secret_key(&input.project_id);
     match input.application_password.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         Some(pw) => state.secrets.set(&key, pw)?,
         None => {
             if state.secrets.get(&key)?.is_none() {
-                return Err(AppError::validation("توکن افزونه‌ی MyArticleManager Bridge (یا Application Password) الزامی است."));
+                return Err(AppError::validation("توکن افزونه‌ی SEO Master Bridge (یا Application Password) الزامی است."));
             }
         }
     }
@@ -206,6 +206,29 @@ pub(crate) fn refine(state: &AppState, e: ProviderError) -> AppError {
     e.into()
 }
 
+/// Works out which layer is failing (REST, admin-ajax, token or host firewall) for the stored error text.
+async fn transport_hint(client: &RestWordPressClient) -> String {
+    let rest = client.rest_ping().await;
+    let ajax = client.admin_ajax_ping().await;
+    match (rest, ajax) {
+        (Some(p), _) => {
+            if p.get("tokenHeader").and_then(|v| v.as_bool()) == Some(false) {
+                "افزونه‌ی Bridge پاسخ می‌دهد، ولی هدر توکن به وردپرس نرسیده است (سرور آن را حذف می‌کند).".to_string()
+            } else {
+                "افزونه‌ی Bridge پاسخ می‌دهد؛ توکن یا کاربر متصل را بررسی کنید.".to_string()
+            }
+        }
+        (None, Some(a)) => {
+            if a.get("authenticated").and_then(|v| v.as_bool()) == Some(true) {
+                "مسیر REST مسدود است، ولی admin-ajax با توکن پاسخ داد. آپلود فعلاً به REST نیاز دارد؛ تنظیمات امنیتی هاست را بررسی کنید.".to_string()
+            } else {
+                "admin-ajax پاسخ داد ولی توکن پذیرفته نشد.".to_string()
+            }
+        }
+        (None, None) => "هیچ‌کدام از مسیرهای افزونه پاسخ JSON ندادند. افزونه‌ی Bridge فعال است؟ اگر بله، فایروال یا امنیت هاست درخواست‌ها را مسدود کرده است.".to_string(),
+    }
+}
+
 pub async fn test_connection(state: &AppState, project_id: &str) -> AppResult<TestResult> {
     let (client, _) = build_client(state, project_id).await?;
     match client.test_connection().await {
@@ -232,11 +255,12 @@ pub async fn test_connection(state: &AppState, project_id: &str) -> AppResult<Te
         }
         Err(e) => {
             let err = refine(state, e);
+            let stored = format!("{} — {}", err.message, transport_hint(&client).await);
             sqlx::query(
                 "UPDATE wordpress_connections SET status='FAILED', last_error=?,
                  last_tested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE project_id=?",
             )
-            .bind(&err.message)
+            .bind(&stored)
             .bind(project_id)
             .execute(&state.db)
             .await?;
