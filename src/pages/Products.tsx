@@ -28,7 +28,7 @@ export default function Products() {
   });
   return <div className="max-w-6xl space-y-5">
     <h1 className="text-2xl font-bold">توضیحات محصولات ووکامرس</h1>
-    <p className="text-sm leading-7 text-slate-600">فقط فیلد توضیحات بلند محصول (description) تغییر می‌کند؛ عنوان، قیمت، موجودی، SKU و توضیح کوتاه ثابت می‌مانند. برای این بخش افزونه MyArticleManager Bridge باید در سایت فعال باشد و کاربر وردپرس اجازه ویرایش محصولات داشته باشد.</p>
+    <p className="text-sm leading-7 text-slate-600">فقط فیلد توضیحات بلند محصول (description) تغییر می‌کند؛ عنوان، قیمت، موجودی، SKU و توضیح کوتاه ثابت می‌مانند. برای این بخش افزونه SEO Master Bridge باید در سایت فعال باشد و کاربر وردپرس اجازه ویرایش محصولات داشته باشد.</p>
     <Card className="flex flex-wrap gap-3 items-end">
       <label className="text-sm">پروژه<select className={`${inputClass} block mt-1`} value={projectId} onChange={(e) => { setProjectId(e.target.value); setSelected(null); setPage(1); }}><option value="">انتخاب پروژه</option>{projects.data?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label className="flex-1 text-sm">جستجوی محصول<input className={`${inputClass} block mt-1`} value={search} onChange={e => {setSearch(e.target.value);setPage(1);}} placeholder="نام محصول" /></label>
@@ -37,7 +37,16 @@ export default function Products() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card className="space-y-3">
         <h2 className="font-semibold">محصولات سایت ({num(products.data?.total ?? 0)})</h2>
-        <div className="max-h-[32rem] overflow-auto space-y-1">{products.data?.items.map((p) => <button key={p.id} onClick={() => {setSelected(p);setDescription(p.description);setKeyword(p.name);setMsg("");setError(null);}} className={`block w-full p-3 rounded-lg border text-start ${selected?.id===p.id ? "border-brand-500 bg-brand-50" : "border-slate-100 hover:bg-slate-50"}`}><span className="font-medium">{p.name}</span><span className="block text-xs text-slate-400 ltr">SKU: {p.sku || "—"} / ID: {p.id}</span></button>)}</div>
+        <div className="max-h-[32rem] overflow-auto space-y-1">
+          {(products.isLoading || (products.isFetching && !products.data)) && Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="p-3 rounded-lg border border-slate-100 animate-pulse space-y-2" aria-hidden="true">
+              <div className="h-4 w-3/4 rounded bg-slate-200" />
+              <div className="h-3 w-1/2 rounded bg-slate-100" />
+            </div>
+          ))}
+          {!products.isLoading && products.data?.items.length === 0 && <p className="text-sm text-slate-500">محصولی یافت نشد.</p>}
+          {products.data?.items.map((p) => <button key={p.id} onClick={() => {setSelected(p);setDescription(p.description);setKeyword(p.name);setMsg("");setError(null);}} className={`block w-full p-3 rounded-lg border text-start ${selected?.id===p.id ? "border-brand-500 bg-brand-50" : "border-slate-100 hover:bg-slate-50"}`}><span className="font-medium">{p.name}</span><span className="block text-xs text-slate-400 ltr">SKU: {p.sku || "—"} / ID: {p.id}</span></button>)}
+        </div>
         <div className="flex items-center gap-3"><Button variant="secondary" disabled={page <= 1} onClick={() => setPage(p => p-1)}>قبلی</Button><span>{num(page)} / {num(products.data?.pages ?? 1)}</span><Button variant="secondary" disabled={page >= (products.data?.pages ?? 1)} onClick={() => setPage(p => p+1)}>بعدی</Button></div>
       </Card>
       <Card className="space-y-4">
@@ -45,7 +54,7 @@ export default function Products() {
           <h2 className="font-semibold">{selected.name}</h2>
           <label className="text-sm block">کلمه کلیدی برای تولید متن<input className={`${inputClass} block mt-1`} value={keyword} onChange={e=>setKeyword(e.target.value)} /></label>
           <div className="flex gap-2"><Button className="ai-btn" disabled={!providerId || !keyword.trim() || generate.isPending} onClick={() => generate.mutate()}>{generate.isPending ? "در حال تولید…" : "تولید توضیحات با AI"}</Button></div>
-          <label className="text-sm block">توضیحات تکمیلی (HTML قابل ویرایش)<textarea className={`${inputClass} block mt-1 min-h-80 font-mono text-left`} dir="ltr" value={description} onChange={e=>setDescription(e.target.value)} /></label>
+          <label className="text-sm block">توضیحات تکمیلی<textarea className={`${inputClass} block mt-1 min-h-80`} value={description} onChange={e=>setDescription(e.target.value)} /></label>
           <ErrorBox message={error}/>{msg && <p className="text-sm text-emerald-700">{msg}</p>}
           <Button disabled={save.isPending || !description.trim()} onClick={() => save.mutate()}>{save.isPending ? "در حال ذخیره…" : "ذخیره فقط توضیحات محصول"}</Button>
         </> : <p className="text-slate-500 text-sm">برای ویرایش توضیحات، یک محصول از لیست انتخاب کنید.</p>}

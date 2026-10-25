@@ -57,3 +57,9 @@ input, textarea, select { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .ai-btn, .ai-btn::before, .ai-btn::after { animation: none; }
 }
+
+/* Progress bar: articles currently being generated (reserved, not yet done). */
+.striped-reserved {
+  background-color: #facc15;
+  background-image: repeating-linear-gradient(45deg, rgba(120, 53, 15, 0.35) 0 6px, transparent 6px 12px);
+}

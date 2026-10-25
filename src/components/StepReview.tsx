@@ -25,7 +25,7 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
   const [scheduleMsg, setScheduleMsg] = useState("");
   const bulkSchedule = useMutation({
     mutationFn: () => api.setUploadSchedule(c.id, null, bulkAt ? new Date(bulkAt).toISOString() : null),
-    onSuccess: (n) => { setScheduleMsg(`زمان آپلود ${num(n)} مقاله ذخیره شد.`); setError(null); after(); },
+    onSuccess: (n) => { setScheduleMsg(`زمان انتشار ${num(n)} مقاله در وردپرس ثبت شد.`); setError(null); after(); },
     onError: failSchedule,
   });
   function failSchedule(e: unknown) { setScheduleMsg(""); setError(errorMessage(e)); }
@@ -38,7 +38,11 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
   };
   const fail = (e: unknown) => setError(errorMessage(e));
   const uploadAll = useMutation({ mutationFn: () => api.uploadCampaign(c.id), onSuccess: () => { setConfirmAll(false); setError(null); after(); }, onError: (e) => { setConfirmAll(false); fail(e); } });
-  const uploadOne = useMutation({ mutationFn: (id: string) => api.uploadToWordpress(id), onSuccess: () => { setError(null); after(); }, onError: fail });
+  const uploadOne = useMutation({
+    mutationFn: ({ id, publish }: { id: string; publish: boolean }) => api.uploadToWordpress(id, publish),
+    onSuccess: () => { setError(null); after(); },
+    onError: fail,
+  });
 
   const rows = articles.data ?? [];
   const ready = rows.filter((a) => a.status === "READY_TO_UPLOAD").length;
@@ -66,9 +70,9 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
           </div>
         )}
         {!connected && <p className="text-xs text-amber-700">اتصال وردپرس این پروژه هنوز «تست‌شده و متصل» نیست؛ از صفحه‌ی پروژه اتصال را تست کنید. همه‌ی مقالات فقط به صورت Draft ساخته می‌شوند.</p>}
-        <p className="text-xs text-slate-500">متا تایتل و متادسکریپشن به Rank Math ارسال می‌شود. برای آن و بخش محصولات باید افزونه «MyArticleManager Bridge» را روی وردپرس فعال کنید.</p>
-        <div className="flex flex-wrap gap-2 items-end border-t border-slate-100 pt-3"><label className="text-sm">زمان آپلود گروهی (زمان محلی سیستم)<input type="datetime-local" className={`${inputClass} block mt-1 ltr`} value={bulkAt} onChange={e=>setBulkAt(e.target.value)}/></label><Button variant="secondary" disabled={bulkSchedule.isPending} onClick={()=>bulkSchedule.mutate()}>ثبت برای همه</Button><Button variant="ghost" onClick={()=>{setBulkAt("");api.setUploadSchedule(c.id,null,null).then(()=>{setScheduleMsg("زمان‌بندی‌ها پاک شد.");after();}).catch(failSchedule);}}>پاک کردن زمان‌بندی‌ها</Button></div>
-        <p className="text-xs text-slate-500">در زمان تعیین‌شده نوشته فقط به حالت Draft آپلود می‌شود و منتشر نمی‌شود. برنامه باید در حال اجرا یا در System Tray باز باشد.</p>
+        <p className="text-xs text-slate-500">متا تایتل و متادسکریپشن به Rank Math ارسال می‌شود. برای آن و بخش محصولات باید افزونه «SEO Master Bridge» را روی وردپرس فعال کنید.</p>
+        <div className="flex flex-wrap gap-2 items-end border-t border-slate-100 pt-3"><label className="text-sm">زمان انتشار گروهی در وردپرس (زمان محلی سیستم)<input type="datetime-local" className={`${inputClass} block mt-1 ltr`} value={bulkAt} onChange={e=>setBulkAt(e.target.value)}/></label><Button variant="secondary" disabled={bulkSchedule.isPending} onClick={()=>bulkSchedule.mutate()}>ثبت برای همه</Button><Button variant="ghost" onClick={()=>{setBulkAt("");api.setUploadSchedule(c.id,null,null).then(()=>{setScheduleMsg("تاریخ‌های انتشار پاک شد.");after();}).catch(failSchedule);}}>پاک کردن تاریخ‌ها</Button></div>
+        <p className="text-xs text-slate-500">تاریخ انتشار، تاریخ نوشته در وردپرس است و آپلود را به تأخیر نمی‌اندازد. نوشته به صورت پیش‌نویس با این تاریخ ساخته می‌شود؛ برای انتشار فوری از دکمه‌ی «انتشار مستقیم» در هر ردیف استفاده کنید.</p>
         {scheduleMsg && <p className="text-sm text-emerald-700">{scheduleMsg}</p>}
         <ErrorBox message={error} />
       </Card>
@@ -101,7 +105,10 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
                       {!done && a.wordCount !== null && <Button variant="ghost" onClick={() => setTaxFor(a)}>دسته و برچسب</Button>}
                       {!done && a.wordCount !== null && <UploadScheduleControl key={a.planId + (a.uploadAt ?? "")} a={a} campaignId={c.id} onChanged={after} onError={fail} />}
                       {(a.status === "READY_TO_UPLOAD" || (a.status === "FAILED" && a.wordCount !== null)) && (
-                        <Button variant="secondary" disabled={uploadOne.isPending} onClick={() => uploadOne.mutate(a.planId)}>{a.status === "FAILED" ? "تلاش مجدد آپلود" : "آپلود به وردپرس"}</Button>
+                        <>
+                          <Button variant="secondary" disabled={uploadOne.isPending} onClick={() => uploadOne.mutate({ id: a.planId, publish: false })}>{a.status === "FAILED" ? "تلاش مجدد آپلود" : "آپلود به وردپرس"}</Button>
+                          <Button variant="danger" disabled={uploadOne.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} بلافاصله در سایت منتشر می‌شود. ادامه می‌دهید؟`)) uploadOne.mutate({ id: a.planId, publish: true }); }}>انتشار مستقیم</Button>
+                        </>
                       )}
                       {done && a.wordpressUrl && <Button variant="ghost" onClick={() => openUrl(a.wordpressUrl!).catch(fail)}>مشاهده‌ی پیش‌نویس در وردپرس</Button>}
                     </div>
@@ -131,7 +138,7 @@ function UploadScheduleControl({a,campaignId,onChanged,onError}: {a:ArticleRow;c
   const local = a.uploadAt ? (()=>{ const d=new Date(a.uploadAt); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);})() : "";
   const [at,setAt] = useState(local);
   const mutation = useMutation({mutationFn:()=>api.setUploadSchedule(campaignId,a.planId,at ? new Date(at).toISOString():null),onSuccess:onChanged,onError});
-  return <div className="inline-flex items-center gap-1"><input aria-label={`زمان آپلود مقاله ${a.articleNo}`} type="datetime-local" className={`${inputClass} ltr text-xs max-w-44`} value={at} onChange={e=>setAt(e.target.value)}/><Button variant="ghost" disabled={mutation.isPending} onClick={()=>mutation.mutate()}>زمان‌بندی</Button></div>;
+  return <div className="inline-flex items-center gap-1"><input aria-label={`زمان انتشار مقاله ${a.articleNo}`} type="datetime-local" className={`${inputClass} ltr text-xs max-w-44`} value={at} onChange={e=>setAt(e.target.value)}/><Button variant="ghost" disabled={mutation.isPending} onClick={()=>mutation.mutate()}>ثبت زمان انتشار</Button></div>;
 }
 
 function Stat({ label, v, tone }: { label: string; v: string; tone?: "red" | "green" }) {

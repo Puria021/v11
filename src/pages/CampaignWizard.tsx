@@ -126,8 +126,8 @@ function StepSeeds({ c, onChanged, next }: { c: CampaignView; onChanged: () => v
 function StepKeywords({ c, onChanged, next }: { c: CampaignView; onChanged: () => void; next: () => void }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("searchVolume");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortBy, setSortBy] = useState("keyword");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [source, setSource] = useState("");
   const [manual, setManual] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
@@ -223,8 +223,7 @@ function StepKeywords({ c, onChanged, next }: { c: CampaignView; onChanged: () =
               <th className="w-10 px-3 py-2">
                 <input type="checkbox" checked={allSelected} onChange={() => select.mutate({ ids: items.map((k) => k.id), sel: !allSelected })} />
               </th>
-              {th("keyword", "کلمه‌ی کلیدی")}{th("searchVolume", "حجم جستجو")}{th("competition", "رقابت")}{th("cpc", "CPC")}
-              <th className="px-3 py-2 text-start font-medium">روند</th>
+              {th("keyword", "کلمه‌ی کلیدی")}
               {th("intent", "هدف جستجو")}
               <th className="px-3 py-2 text-start font-medium">منبع</th>
               <th className="w-10" />
@@ -233,7 +232,7 @@ function StepKeywords({ c, onChanged, next }: { c: CampaignView; onChanged: () =
           <tbody>
             {items.map((k) => <KeywordRow key={k.id} k={k} onToggle={() => select.mutate({ ids: [k.id], sel: !k.isSelected })} onDelete={() => remove.mutate([k.id])} />)}
             {items.length === 0 && (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-500">کلمه‌ای وجود ندارد. CSV وارد کنید، از AI پیشنهاد بگیرید یا دستی اضافه کنید.</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">کلمه‌ای وجود ندارد. CSV وارد کنید، از AI پیشنهاد بگیرید یا دستی اضافه کنید.</td></tr>
             )}
           </tbody>
         </table>
@@ -245,15 +244,10 @@ function StepKeywords({ c, onChanged, next }: { c: CampaignView; onChanged: () =
 }
 
 function KeywordRow({ k, onToggle, onDelete }: { k: Keyword; onToggle: () => void; onDelete: () => void }) {
-  const fmt = (v: number | null) => (v === null ? <span className="text-slate-300">—</span> : num(v));
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50">
       <td className="px-3 py-2"><input type="checkbox" checked={k.isSelected} onChange={onToggle} /></td>
       <td className="px-3 py-2">{k.keyword}{k.related.length > 0 && <span className="ms-2 text-xs text-slate-400">+{num(k.related.length)} مرتبط</span>}</td>
-      <td className="px-3 py-2">{fmt(k.searchVolume)}</td>
-      <td className="px-3 py-2">{fmt(k.competition)}</td>
-      <td className="px-3 py-2">{fmt(k.cpc)}</td>
-      <td className="px-3 py-2 text-xs text-slate-500">{k.trend ? <span className="ltr">{k.trend.slice(-6).join(" · ")}</span> : <span className="text-slate-300">—</span>}</td>
       <td className="px-3 py-2 text-xs">{k.intent ? INTENT_FA[k.intent] : "—"}</td>
       <td className="px-3 py-2"><Badge tone={k.source === "ai" ? "amber" : "gray"}>{SOURCE_FA[k.source]}</Badge></td>
       <td className="px-2"><button className="text-slate-400 hover:text-red-600" title="حذف" onClick={onDelete}>✕</button></td>

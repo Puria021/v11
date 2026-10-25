@@ -8,6 +8,15 @@ import { errorMessage, num } from "../lib/format";
 import Templates from "./Templates";
 import Logs from "./Logs";
 import Updates from "./Updates";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import logo from "../assets/codeappmaster-logo.png";
+
+const SITE_URL = "https://codeappmaster.ir";
+// Text shown in the "درباره ما" tab. Edit the paragraphs here.
+const ABOUT_PARAGRAPHS = [
+  "Code App Master یک گروه نرم‌افزاری است که ابزارهای کاربردی برای طراحان وب و تولیدکنندگان محتوای فارسی می‌سازد.",
+  "SEO Master یکی از محصولات این گروه است. با آن می‌توانید کمپین‌های مقاله و توضیحات محصول را برای سایت‌های وردپرس و ووکامرس تولید کنید.",
+];
 
 const TABS = [
   { id: "general", label: "عمومی" },
@@ -16,6 +25,8 @@ const TABS = [
   { id: "templates", label: "قالب‌ها" },
   { id: "logs", label: "گزارش‌ها" },
   { id: "runtime", label: "شبکه و صف" },
+  { id: "cache", label: "کش" },
+  { id: "about", label: "درباره ما" },
   { id: "backup", label: "پشتیبان‌گیری" },
   { id: "reset", label: "ریست" },
 ] as const;
@@ -48,6 +59,8 @@ export default function Settings() {
       {tab === "templates" && <Templates />}
       {tab === "logs" && <Logs />}
       {tab === "runtime" && <><NetworkCard /><QueueCard /></>}
+      {tab === "cache" && <CacheCard />}
+      {tab === "about" && <AboutCard />}
       {tab === "backup" && <BackupCard />}
       {tab === "reset" && <ResetCard />}
     </div>
@@ -145,7 +158,7 @@ function BackupCard() {
 
   const doExport = useMutation({
     mutationFn: async () => {
-      const path = await save({ defaultPath: "backup.aiproj", filters: [{ name: "MyArticleManager backup", extensions: ["aiproj"] }] });
+      const path = await save({ defaultPath: "backup.aiproj", filters: [{ name: "SEO Master backup", extensions: ["aiproj"] }] });
       if (!path) return null;
       return api.exportBackup(path, scope || null);
     },
@@ -154,7 +167,7 @@ function BackupCard() {
   });
   const pick = useMutation({
     mutationFn: async () => {
-      const path = await open({ multiple: false, filters: [{ name: "MyArticleManager backup", extensions: ["aiproj"] }] });
+      const path = await open({ multiple: false, filters: [{ name: "SEO Master backup", extensions: ["aiproj"] }] });
       if (!path || Array.isArray(path)) return null;
       return { path, preview: await api.previewBackup(path) };
     },
@@ -212,6 +225,41 @@ function BackupCard() {
       <ErrorBox message={error} />
     </Card>
   );
+}
+
+function AboutCard() {
+  return <Card className="space-y-4">
+    <div className="flex flex-col items-center gap-3 text-center">
+      <img src={logo} alt="لوگوی Code App Master" className="h-40 w-40 object-contain" />
+      <h2 className="text-lg font-bold">Code App Master</h2>
+    </div>
+    {ABOUT_PARAGRAPHS.map((t) => <p key={t} className="text-sm leading-8 text-slate-700">{t}</p>)}
+    <div className="flex items-center justify-center gap-2 border-t border-slate-100 pt-4 text-sm">
+      <span>وب‌سایت:</span>
+      <Button variant="ghost" onClick={() => openUrl(SITE_URL).catch(() => {})}><span className="ltr">codeappmaster.ir</span></Button>
+    </div>
+  </Card>;
+}
+
+function CacheCard() {
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const clear = useMutation({
+    mutationFn: () => api.clearCache(),
+    onSuccess: (r) => {
+      setError(null);
+      const mb = (r.bytesFreed / (1024 * 1024)).toFixed(1);
+      setMsg(`${num(r.filesRemoved)} فایل حذف شد و ${mb} مگابایت آزاد شد.${r.keptPending ? ` ${num(r.keptPending)} تصویر مقاله‌ی آماده‌ی آپلود نگه داشته شد.` : ""}`);
+    },
+    onError: (e) => { setMsg(""); setError(errorMessage(e)); },
+  });
+  return <Card className="space-y-3">
+    <h2 className="font-semibold">کش برنامه</h2>
+    <p className="text-sm leading-7 text-slate-600">تصاویر و فایل‌های موقت ذخیره‌شده در پوشه‌ی داده‌ی برنامه (AppData) را پاک می‌کند تا فضای دیسک آزاد شود. تصاویر مقاله‌هایی که هنوز آپلود نشده‌اند نگه داشته می‌شوند تا آپلودشان خراب نشود. پشتیبان‌های ذخیره‌شده پاک نمی‌شوند.</p>
+    <Button variant="secondary" disabled={clear.isPending} onClick={() => { if (window.confirm("فایل‌های کش حذف شوند؟")) { setMsg(""); clear.mutate(); } }}>{clear.isPending ? "در حال حذف…" : "حذف کش"}</Button>
+    {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+    <ErrorBox message={error} />
+  </Card>;
 }
 
 function ResetCard() {

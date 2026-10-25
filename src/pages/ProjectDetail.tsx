@@ -106,7 +106,7 @@ export default function ProjectDetail({ online }: { online: boolean | null }) {
       <Card className="space-y-4">
         <h2 className="text-lg font-semibold">اتصال به وردپرس</h2>
         <p className="text-xs leading-6 text-slate-500">
-          افزونه‌ی «MyArticleManager Bridge» را در وردپرس نصب کنید، از تنظیمات ← MyArticleManager Bridge توکن بسازید و آن را
+          افزونه‌ی «SEO Master Bridge» را در وردپرس نصب کنید، از تنظیمات ← SEO Master Bridge توکن بسازید و آن را
           اینجا وارد کنید. توکن در Windows Credential Manager ذخیره می‌شود و دوباره نمایش داده نمی‌شود. اگر افزونه ندارید،
           می‌توانید نام کاربری و Application Password را به‌جای آن وارد کنید.
         </p>
@@ -118,7 +118,7 @@ export default function ProjectDetail({ online }: { online: boolean | null }) {
           <Field label="نام کاربری" hint="فقط برای حالت Application Password. با توکن افزونه خالی بگذارید.">
             <input className={`${inputClass} ltr`} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
           </Field>
-          <Field label="توکن افزونه‌ی MyArticleManager Bridge" hint={c?.hasSecret ? "ذخیره شده است — برای نگه‌داشتن آن خالی بگذارید." : undefined}>
+          <Field label="توکن افزونه‌ی SEO Master Bridge" hint={c?.hasSecret ? "ذخیره شده است — برای نگه‌داشتن آن خالی بگذارید." : undefined}>
             <input
               type="password"
               className={`${inputClass} ltr`}

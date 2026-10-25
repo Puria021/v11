@@ -98,7 +98,7 @@ export type CampaignView = {
   imageProviderId: string | null; templateId: string | null;
   createdAt: string; updatedAt: string;
   primaryCount: number; candidateCount: number; selectedCount: number; secondaryCount: number;
-  planCount: number; approvedCount: number;
+  planCount: number; approvedCount: number; completeCount: number;
 };
 export type CreateCampaign = {
   projectId: string; name: string; targetCount?: number; country?: string; language?: string; aiProviderId?: string;
@@ -288,7 +288,8 @@ export const api = {
     invoke<{ content: number; image: number; wordpress: number }>("update_queue_settings", { content, image, wordpress }),
 
   setUploadSchedule: (campaignId: string, planId: string | null, uploadAt: string | null) => invoke<number>("set_upload_schedule", { campaignId, planId, uploadAt }),
-  uploadToWordpress: (planId: string) => invoke<void>("upload_to_wordpress", { planId }),
+  uploadToWordpress: (planId: string, publishNow = false) => invoke<void>("upload_to_wordpress", { planId, publishNow }),
+  clearCache: () => invoke<{ filesRemoved: number; bytesFreed: number; keptPending: number }>("clear_cache"),
   uploadCampaign: (campaignId: string) => invoke<number>("upload_campaign", { campaignId, confirm: true }),
   setPlanTaxonomy: (planId: string, categoryIds: number[], tags: string[]) =>
     invoke<void>("set_plan_taxonomy", { planId, categoryIds, tags }),

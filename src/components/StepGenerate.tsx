@@ -13,6 +13,9 @@ export const STATUS: Record<string, [string, "gray" | "amber" | "green" | "red"]
   FAILED: ["ناموفق", "red"], CANCELLED: ["لغو شده", "gray"],
 };
 
+// Campaigns whose step 5 was already opened in this app session (auto-retry runs once per campaign).
+const autoRetriedCampaigns = new Set<string>();
+
 export default function StepGenerate({ c, onChanged, next }: { c: CampaignView; onChanged: () => void; next: () => void }) {
   const qc = useQueryClient();
   const progress = useQuery({
@@ -59,6 +62,7 @@ export default function StepGenerate({ c, onChanged, next }: { c: CampaignView; 
   const ready = !!c.aiProviderId;
   const started = status === "IN_PROGRESS" || status === "PAUSED" || (p?.content.done ?? 0) > 0 || (p?.queued ?? 0) > 0;
   const allApproved = c.approvedCount === c.planCount && c.planCount > 0;
+  const reservedPercent = p && p.titles.total > 0 ? Math.min((p.running * 100) / p.titles.total, 100 - p.percent) : 0;
 
   // Generation starts by itself once every title is approved; it is not a separate user step.
   const autoStarted = useRef(false);
@@ -69,6 +73,13 @@ export default function StepGenerate({ c, onChanged, next }: { c: CampaignView; 
     autoStarted.current = true;
     start.mutate();
   }, [progress.isSuccess, progress.data, allApproved, ready]);
+
+  // First time this campaign's step 5 is opened in the session, retry failed articles once automatically.
+  useEffect(() => {
+    if (!progress.isSuccess || !progress.data || autoRetriedCampaigns.has(c.id)) return;
+    autoRetriedCampaigns.add(c.id);
+    if (progress.data.failed > 0) retryFailed.mutate();
+  }, [progress.isSuccess, progress.data, c.id]);
 
   if (!allApproved) {
     return <Card><p className="text-sm text-slate-600">ابتدا همه‌ی {num(c.planCount)} عنوان را در مرحله‌ی قبل تأیید کنید.</p></Card>;
@@ -99,9 +110,11 @@ export default function StepGenerate({ c, onChanged, next }: { c: CampaignView; 
             <span className="font-semibold">پیشرفت تولید</span>
             <span>{num(p.percent)}٪</span>
           </div>
-          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${p.percent}%` }} />
+          <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full bg-brand-600 transition-all" style={{ width: `${p.percent}%` }} />
+            <div className="striped-reserved h-full transition-all" style={{ width: `${reservedPercent}%` }} title="در حال انجام" />
           </div>
+          {reservedPercent > 0 && <div className="text-xs text-amber-700">بخش زرد راه‌راه: مقالات در حال انجام</div>}
           <div className="grid grid-cols-2 gap-3 text-center text-sm md:grid-cols-5">
             <Stat label="عنوان‌ها" v={`${num(p.titles.done)}/${num(p.titles.total)}`} />
             <Stat label="کامل (متن + تصویر)" v={`${num(p.complete)}/${num(p.titles.total)}`} />

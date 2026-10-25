@@ -37,9 +37,9 @@ export default function Campaigns() {
                 <h3 className="font-semibold">{c.name}</h3>
                 <Badge tone={tone}>{label}</Badge>
               </div>
-              <div className="text-xs text-slate-500">{c.projectName} · {faDate(c.createdAt)}</div>
+              <div className="text-xs text-slate-500"><span className="font-bold text-slate-800">{c.projectName}</span> · {faDate(c.createdAt)}</div>
               <div className="text-xs text-slate-600">
-                عنوان‌های تأییدشده: {num(c.approvedCount)} / {num(c.targetCount)} · کلمات ثانویه: {num(c.secondaryCount)}
+                انجام‌شده: <span className="font-semibold text-emerald-700">{num(c.completeCount)}</span> / {num(c.targetCount)} · عنوان‌های تأییدشده: {num(c.approvedCount)} · کلمات ثانویه: {num(c.secondaryCount)}
               </div>
               <div className="mt-2 flex gap-2 border-t border-slate-100 pt-3">
                 <Link to={`/campaigns/${c.id}`}><Button>ادامه</Button></Link>
