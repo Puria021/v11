@@ -64,11 +64,59 @@ impl RestWordPressClient {
     }
 
     pub async fn update_product_description(&self, id: i64, description: &str) -> Result<(), ProviderError> {
-        self.post_json(&format!("myarticle/v1/products/{id}/description"), &serde_json::json!({"description": description})).await.map(|_| ())
+        let rest = self.post_json(&format!("myarticle/v1/products/{id}/description"), &serde_json::json!({"description": description})).await;
+        match rest {
+            Ok(_) => Ok(()),
+            // Some hosts block /wp-json for requests with the token header; admin-ajax is not blocked.
+            Err(_) if self.user.trim().is_empty() => {
+                self.admin_ajax_bridge("mamb_product_description", &[("id", id.to_string()), ("description", description.to_string())]).await.map(|_| ())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Calls a bridge action through admin-ajax (token mode only). Returns the success data.
+    async fn admin_ajax_bridge(&self, action: &str, fields: &[(&str, String)]) -> Result<Value, ProviderError> {
+        let root = self.base.trim_end_matches('/').trim_end_matches("/wp-json").to_string();
+        // Built in its own block: the serializer is not Send and must not live across an await.
+        let body: String = {
+            let mut ser = url::form_urlencoded::Serializer::new(String::new());
+            ser.append_pair("action", action);
+            for (k, v) in fields {
+                ser.append_pair(k, v);
+            }
+            ser.finish()
+        };
+        let rb = self
+            .http
+            .post(format!("{root}/wp-admin/admin-ajax.php"))
+            .with_auth(self)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body);
+        let (v, _) = self.send(rb).await?;
+        if v.get("success").and_then(|x| x.as_bool()) == Some(true) {
+            return Ok(v.get("data").cloned().unwrap_or(Value::Null));
+        }
+        let msg = v.pointer("/data/message").and_then(|m| m.as_str()).unwrap_or("درخواست در افزونه‌ی SEO Master Bridge ناموفق بود.");
+        Err(ProviderError::new(ProviderErrorKind::Remote, msg))
     }
 
     pub async fn update_rank_math(&self, id: i64, keyword: &str, title: &str, description: &str) -> Result<(), ProviderError> {
-        self.post_json(&format!("myarticle/v1/rankmath/{id}"), &serde_json::json!({"keyword": keyword, "title": title, "description": description})).await.map(|_| ())
+        let rest = self.post_json(&format!("myarticle/v1/rankmath/{id}"), &serde_json::json!({"keyword": keyword, "title": title, "description": description})).await;
+        match rest {
+            Ok(_) => Ok(()),
+            Err(_) if self.user.trim().is_empty() => self
+                .admin_ajax_bridge("mamb_seo_meta", &[
+                    ("id", id.to_string()),
+                    ("keyword", keyword.to_string()),
+                    ("title", title.to_string()),
+                    ("description", description.to_string()),
+                ])
+                .await
+                .map(|_| ()),
+            Err(e) => Err(e),
+        }
     }
 
     /// Writes the Rank Math SEO fields as post meta through the core REST API, then reads them back.

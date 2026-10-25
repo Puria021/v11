@@ -18,3 +18,27 @@ async fn migration_0011_runs_when_default_template_row_is_missing() {
     let (tpl,): (Option<String>,) = sqlx::query_as("SELECT template_id FROM campaigns WHERE id = 'c1'").fetch_one(&pool).await.unwrap();
     assert_eq!(tpl.as_deref(), Some("tpl_default"));
 }
+
+#[tokio::test]
+async fn fresh_database_gets_default_article_template_content() {
+    let pool = db::connect_memory().await.unwrap();
+    let (instructions, min_words, image_count, linking): (String, i64, i64, i64) = sqlx::query_as(
+        "SELECT system_instructions, min_words, image_count, internal_linking FROM article_templates WHERE id = 'tpl_default'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(instructions.contains("نویسنده‌ی حرفه‌ای"), "system instructions must be filled");
+    assert_eq!((min_words, image_count, linking), (2000, 3, 1));
+}
+
+#[tokio::test]
+async fn default_template_migration_does_not_overwrite_user_content() {
+    let pool = db::connect_memory().await.unwrap();
+    sqlx::query("UPDATE article_templates SET system_instructions = 'متن کاربر', min_words = 900 WHERE id = 'tpl_default'").execute(&pool).await.unwrap();
+    sqlx::raw_sql(include_str!("../migrations/0013_default_article_template.sql")).execute(&pool).await.unwrap();
+    let (instructions, min_words): (String, i64) = sqlx::query_as("SELECT system_instructions, min_words FROM article_templates WHERE id = 'tpl_default'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(instructions, "متن کاربر");
+    assert_eq!(min_words, 900);
+}

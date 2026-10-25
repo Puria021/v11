@@ -54,6 +54,8 @@ async fn setup(n: usize, with_image: bool) -> Cx {
         project_id: p.id.clone(), name: "کمپین".into(), target_count: Some(n as i64), country: None, language: None, ai_provider_id: None,
     }).await.unwrap();
     sqlx::query("UPDATE campaigns SET status='IN_PROGRESS' WHERE id=?").bind(&c.id).execute(&state.db).await.unwrap();
+    // Keep the upload flow of these tests independent of the shipped default template content.
+    sqlx::query("UPDATE article_templates SET image_count=1, internal_linking=0 WHERE id='tpl_default'").execute(&state.db).await.unwrap();
 
     let mut plans = Vec::new();
     for i in 1..=n {
