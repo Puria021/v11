@@ -109,8 +109,8 @@ pub fn shingle_similarity(a: &str, b: &str) -> f64 {
     inter / ((sa.len() + sb.len()) as f64 - inter)
 }
 
-pub const KEYWORD_MIN_USES: usize = 27;
-pub const KEYWORD_MAX_USES: usize = 32;
+pub const KEYWORD_MIN_USES: usize = 20;
+pub const KEYWORD_MAX_USES: usize = 35;
 const LEAD_WORDS: usize = 150;
 const PARAGRAPH_WARN_WORDS: usize = 100;
 const PARAGRAPH_MAX_WORDS: usize = 150;
