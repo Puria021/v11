@@ -4,8 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ArticleRow, CampaignView } from "../api/tauri";
 import { Badge, Button, Card, ConfirmDialog, ErrorBox, Modal, inputClass } from "./ui";
 import ArticleEditor from "./ArticleEditor";
+import JalaliDateTimePicker from "./JalaliDateTimePicker";
 import { STATUS } from "./StepGenerate";
 import { errorMessage, num } from "../lib/format";
+import { formatJalali } from "../lib/jalali";
+
+type ScheduleTarget = { planId: string | null; articleNo?: number; current: string | null };
 
 export default function StepReview({ c, onChanged }: { c: CampaignView; onChanged: () => void }) {
   const qc = useQueryClient();
@@ -21,15 +25,10 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
   const [editing, setEditing] = useState<ArticleRow | null>(null);
   const [taxFor, setTaxFor] = useState<ArticleRow | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
-  const [bulkAt, setBulkAt] = useState("");
-  const [scheduleMsg, setScheduleMsg] = useState("");
-  const bulkSchedule = useMutation({
-    mutationFn: () => api.setUploadSchedule(c.id, null, bulkAt ? new Date(bulkAt).toISOString() : null),
-    onSuccess: (n) => { setScheduleMsg(`زمان انتشار ${num(n)} مقاله در وردپرس ثبت شد.`); setError(null); after(); },
-    onError: failSchedule,
-  });
-  function failSchedule(e: unknown) { setScheduleMsg(""); setError(errorMessage(e)); }
-
+  const [confirmPublishAll, setConfirmPublishAll] = useState(false);
+  const [schedule, setSchedule] = useState<ScheduleTarget | null>(null);
+  const [scheduleValue, setScheduleValue] = useState("");
+  const [msg, setMsg] = useState("");
 
   const after = () => {
     qc.invalidateQueries({ queryKey: ["articles", c.id] });
@@ -37,12 +36,25 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
     onChanged();
   };
   const fail = (e: unknown) => setError(errorMessage(e));
-  const uploadAll = useMutation({ mutationFn: () => api.uploadCampaign(c.id), onSuccess: () => { setConfirmAll(false); setError(null); after(); }, onError: (e) => { setConfirmAll(false); fail(e); } });
+
+  const saveSchedule = useMutation({
+    mutationFn: (iso: string | null) => api.setUploadSchedule(c.id, schedule?.planId ?? null, iso),
+    onSuccess: (n) => {
+      setMsg(scheduleValue ? `زمان انتشار برای ${num(n)} مقاله ثبت شد.` : `زمان انتشار ${num(n)} مقاله پاک شد.`);
+      setSchedule(null);
+      setError(null);
+      after();
+    },
+    onError: fail,
+  });
+  const uploadAll = useMutation({ mutationFn: () => api.uploadCampaign(c.id, false), onSuccess: () => { setConfirmAll(false); setError(null); after(); }, onError: (e) => { setConfirmAll(false); fail(e); } });
+  const publishAll = useMutation({ mutationFn: () => api.uploadCampaign(c.id, true), onSuccess: () => { setConfirmPublishAll(false); setError(null); after(); }, onError: (e) => { setConfirmPublishAll(false); fail(e); } });
   const uploadOne = useMutation({
     mutationFn: ({ id, publish }: { id: string; publish: boolean }) => api.uploadToWordpress(id, publish),
     onSuccess: () => { setError(null); after(); },
     onError: fail,
   });
+  const publishNow = useMutation({ mutationFn: (id: string) => api.publishUploadedNow(id), onSuccess: () => { setError(null); after(); }, onError: fail });
 
   const rows = articles.data ?? [];
   const ready = rows.filter((a) => a.status === "READY_TO_UPLOAD").length;
@@ -51,16 +63,29 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
   const p = progress.data;
   const connected = conn.data?.status === "CONNECTED";
 
+  const openSchedule = (t: ScheduleTarget) => {
+    setMsg("");
+    setSchedule(t);
+    setScheduleValue(t.current ?? defaultScheduleValue());
+  };
+
   return (
     <div className="space-y-4">
       <Card className="space-y-3">
         <div className="flex flex-wrap items-center gap-6">
           <Stat label="آماده‌ی آپلود" v={`${num(ready)}`} />
-          <Stat label="پیش‌نویس ساخته‌شده" v={`${num(drafts)} / ${num(rows.length)}`} tone="green" />
+          <Stat label="در وردپرس" v={`${num(drafts)} / ${num(rows.length)}`} tone="green" />
           <Stat label="ناموفق" v={num(failed)} tone={failed ? "red" : undefined} />
           <div className="ms-auto flex flex-wrap gap-2">
             {failed > 0 && <RetryFailed campaignId={c.id} onDone={after} onError={fail} />}
             <Button disabled={ready === 0 || uploadAll.isPending} onClick={() => setConfirmAll(true)}>ساخت پیش‌نویس‌های وردپرس ({num(ready)})</Button>
+            <button
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300"
+              disabled={ready === 0 || publishAll.isPending}
+              onClick={() => setConfirmPublishAll(true)}
+            >
+              انتشار فوری همه‌ی آماده‌ها ({num(ready)})
+            </button>
           </div>
         </div>
         {p && (
@@ -69,11 +94,14 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
             <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${p.wordpress.total ? (p.wordpress.done * 100) / p.wordpress.total : 0}%` }} /></div>
           </div>
         )}
-        {!connected && <p className="text-xs text-amber-700">اتصال وردپرس این پروژه هنوز «تست‌شده و متصل» نیست؛ از صفحه‌ی پروژه اتصال را تست کنید. همه‌ی مقالات فقط به صورت Draft ساخته می‌شوند.</p>}
-        <p className="text-xs text-slate-500">متا تایتل و متادسکریپشن به Rank Math ارسال می‌شود. برای آن و بخش محصولات باید افزونه «SEO Master Bridge» را روی وردپرس فعال کنید.</p>
-        <div className="flex flex-wrap gap-2 items-end border-t border-slate-100 pt-3"><label className="text-sm">زمان انتشار گروهی در وردپرس (زمان محلی سیستم)<input type="datetime-local" className={`${inputClass} block mt-1 ltr`} value={bulkAt} onChange={e=>setBulkAt(e.target.value)}/></label><Button variant="secondary" disabled={bulkSchedule.isPending} onClick={()=>bulkSchedule.mutate()}>ثبت برای همه</Button><Button variant="ghost" onClick={()=>{setBulkAt("");api.setUploadSchedule(c.id,null,null).then(()=>{setScheduleMsg("تاریخ‌های انتشار پاک شد.");after();}).catch(failSchedule);}}>پاک کردن تاریخ‌ها</Button></div>
-        <p className="text-xs text-slate-500">تاریخ انتشار، تاریخ نوشته در وردپرس است و آپلود را به تأخیر نمی‌اندازد. نوشته به صورت پیش‌نویس با این تاریخ ساخته می‌شود؛ برای انتشار فوری از دکمه‌ی «انتشار مستقیم» در هر ردیف استفاده کنید.</p>
-        {scheduleMsg && <p className="text-sm text-emerald-700">{scheduleMsg}</p>}
+        {!connected && <p className="text-xs text-amber-700">اتصال وردپرس این پروژه هنوز «تست‌شده و متصل» نیست؛ از صفحه‌ی پروژه اتصال را تست کنید.</p>}
+        <p className="text-xs text-slate-500">متا تایتل، متادسکریپشن و کلمه‌ی کلیدی به Rank Math / Yoast ارسال می‌شود. برای آن و بخش محصولات باید افزونه «SEO Master Bridge» روی وردپرس فعال باشد.</p>
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          <Button variant="secondary" onClick={() => openSchedule({ planId: null, current: null })}>تعیین زمان انتشار گروهی</Button>
+          <Button variant="ghost" onClick={() => { setMsg(""); api.setUploadSchedule(c.id, null, null).then(() => { setMsg("تاریخ‌های انتشار پاک شد."); after(); }).catch(fail); }}>پاک کردن زمان‌های انتشار</Button>
+        </div>
+        <p className="text-xs text-slate-500">با ثبت زمان انتشار، مقاله فوراً در وردپرس ساخته و در همان زمان منتشر می‌شود. ویرایش زمان، زمان انتشار را در وردپرس تغییر می‌دهد. برای انتشار فوری از دکمه‌ی «انتشار فوری» در هر ردیف استفاده کنید.</p>
+        {msg && <p className="text-sm text-emerald-700">{msg}</p>}
         <ErrorBox message={error} />
       </Card>
 
@@ -87,11 +115,25 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
               const [label, tone] = STATUS[a.status] ?? [a.status, "gray" as const];
               const catNames = (terms.data ?? []).filter((t) => a.categoryIds.includes(t.wpId)).map((t) => t.name);
               const done = a.status === "DRAFT_CREATED";
+              const hasContent = a.wordCount !== null;
               return (
                 <tr key={a.planId} className="border-t border-slate-100 align-top">
                   <td className="px-3 py-2 text-slate-400">{num(a.articleNo)}</td>
                   <td className="px-3 py-2">
-                    <div>{a.title ?? a.keyword} <span className="text-xs text-slate-500">· کلمه‌ی کلیدی: {a.keyword}</span></div>
+                    <div className="flex items-center gap-2">
+                      {hasContent && (
+                        <button
+                          type="button"
+                          title={a.uploadAt ? `زمان انتشار: ${formatJalali(a.uploadAt)}` : "تعیین زمان انتشار"}
+                          aria-label={`زمان انتشار مقاله ${a.articleNo}`}
+                          className={`shrink-0 rounded p-1 hover:bg-slate-100 ${a.uploadAt ? "text-amber-600" : "text-slate-400"}`}
+                          onClick={() => openSchedule({ planId: a.planId, articleNo: a.articleNo, current: a.uploadAt })}
+                        >
+                          <ClockIcon />
+                        </button>
+                      )}
+                      <span className="whitespace-nowrap">{a.title ?? a.keyword} <span className="text-xs text-slate-500">· کلمه‌ی کلیدی: {a.keyword}</span></span>
+                    </div>
                     {a.lastError && a.status === "FAILED" && <div className="mt-1 text-xs text-red-600">{a.lastError}</div>}
                   </td>
                   <td className="px-3 py-2"><Badge tone={tone}>{label}</Badge></td>
@@ -101,16 +143,18 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
                     <div className="flex flex-wrap gap-1">
-                      <Button variant="ghost" disabled={a.wordCount === null} onClick={() => setEditing(a)}>{done ? "پیش‌نمایش" : "ویرایش / پیش‌نمایش"}</Button>
-                      {!done && a.wordCount !== null && <Button variant="ghost" onClick={() => setTaxFor(a)}>دسته و برچسب</Button>}
-                      {!done && a.wordCount !== null && <UploadScheduleControl key={a.planId + (a.uploadAt ?? "")} a={a} campaignId={c.id} onChanged={after} onError={fail} />}
-                      {(a.status === "READY_TO_UPLOAD" || (a.status === "FAILED" && a.wordCount !== null)) && (
+                      <Button variant="ghost" disabled={!hasContent} onClick={() => setEditing(a)}>{done ? "پیش‌نمایش" : "ویرایش / پیش‌نمایش"}</Button>
+                      {!done && hasContent && <Button variant="ghost" onClick={() => setTaxFor(a)}>دسته و برچسب</Button>}
+                      {(a.status === "READY_TO_UPLOAD" || (a.status === "FAILED" && hasContent)) && (
                         <>
                           <Button variant="secondary" disabled={uploadOne.isPending} onClick={() => uploadOne.mutate({ id: a.planId, publish: false })}>{a.status === "FAILED" ? "تلاش مجدد آپلود" : "آپلود به وردپرس"}</Button>
-                          <Button variant="danger" disabled={uploadOne.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} بلافاصله در سایت منتشر می‌شود. ادامه می‌دهید؟`)) uploadOne.mutate({ id: a.planId, publish: true }); }}>انتشار مستقیم</Button>
+                          <Button variant="danger" disabled={uploadOne.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} بلافاصله در سایت منتشر می‌شود. ادامه می‌دهید؟`)) uploadOne.mutate({ id: a.planId, publish: true }); }}>انتشار فوری</Button>
                         </>
                       )}
-                      {done && a.wordpressUrl && <Button variant="ghost" onClick={() => openUrl(a.wordpressUrl!).catch(fail)}>مشاهده‌ی پیش‌نویس در وردپرس</Button>}
+                      {done && a.wordpressUrl && <Button variant="ghost" onClick={() => openUrl(a.wordpressUrl!).catch(fail)}>مشاهده در وردپرس</Button>}
+                      {done && (
+                        <Button variant="danger" disabled={publishNow.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} همین حالا منتشر شود؟ زمان‌بندی آن لغو می‌شود.`)) publishNow.mutate(a.planId); }}>انتشار فوری</Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -120,9 +164,29 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
         </table>
       </div>
 
+      {schedule && (
+        <Modal title={schedule.planId ? `زمان انتشار مقاله‌ی ${num(schedule.articleNo ?? 0)}` : "زمان انتشار گروهی"} onClose={() => setSchedule(null)}>
+          <div className="space-y-4">
+            <JalaliDateTimePicker value={scheduleValue} onChange={setScheduleValue} />
+            <p className="text-xs text-slate-500">مقاله فوراً در وردپرس ساخته می‌شود و در زمان انتخاب‌شده منتشر می‌شود. زمان وردپرس را می‌توانید با انتخاب دوباره تغییر دهید.</p>
+            <ErrorBox message={error} />
+            <div className="flex flex-wrap justify-between gap-2">
+              <Button variant="ghost" disabled={saveSchedule.isPending} onClick={() => saveSchedule.mutate(null)}>حذف زمان انتشار</Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => setSchedule(null)}>انصراف</Button>
+                <Button disabled={saveSchedule.isPending || !scheduleValue} onClick={() => saveSchedule.mutate(new Date(scheduleValue).toISOString())}>ثبت زمان انتشار</Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
       {confirmAll && (
         <ConfirmDialog title="ساخت پیش‌نویس در وردپرس" message={`${num(ready)} مقاله به صورت پیش‌نویس در وردپرس ساخته می‌شود. چیزی منتشر نمی‌شود و آپلود تکراری مسدود است. ادامه می‌دهید؟`}
           confirmLabel="ساخت پیش‌نویس‌ها" busy={uploadAll.isPending} onConfirm={() => uploadAll.mutate()} onCancel={() => setConfirmAll(false)} />
+      )}
+      {confirmPublishAll && (
+        <ConfirmDialog title="انتشار فوری همه" message={`${num(ready)} مقاله‌ی آماده همین حالا در وردپرس منتشر می‌شود. ادامه می‌دهید؟`}
+          confirmLabel="انتشار فوری" busy={publishAll.isPending} onConfirm={() => publishAll.mutate()} onCancel={() => setConfirmPublishAll(false)} />
       )}
       {editing && (
         <Modal title={`مقاله‌ی ${num(editing.articleNo)}`} onClose={() => setEditing(null)} wide>
@@ -134,11 +198,21 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
   );
 }
 
-function UploadScheduleControl({a,campaignId,onChanged,onError}: {a:ArticleRow;campaignId:string;onChanged:()=>void;onError:(e:unknown)=>void}) {
-  const local = a.uploadAt ? (()=>{ const d=new Date(a.uploadAt); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);})() : "";
-  const [at,setAt] = useState(local);
-  const mutation = useMutation({mutationFn:()=>api.setUploadSchedule(campaignId,a.planId,at ? new Date(at).toISOString():null),onSuccess:onChanged,onError});
-  return <div className="inline-flex items-center gap-1"><input aria-label={`زمان انتشار مقاله ${a.articleNo}`} type="datetime-local" className={`${inputClass} ltr text-xs max-w-44`} value={at} onChange={e=>setAt(e.target.value)}/><Button variant="ghost" disabled={mutation.isPending} onClick={()=>mutation.mutate()}>ثبت زمان انتشار</Button></div>;
+/** Default publish time: one hour from now, rounded to the next 5 minutes (local time). */
+function defaultScheduleValue(): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  d.setSeconds(0, 0);
+  d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5);
+  return d.toISOString();
+}
+
+function ClockIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
 }
 
 function Stat({ label, v, tone }: { label: string; v: string; tone?: "red" | "green" }) {

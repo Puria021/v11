@@ -290,7 +290,8 @@ export const api = {
   setUploadSchedule: (campaignId: string, planId: string | null, uploadAt: string | null) => invoke<number>("set_upload_schedule", { campaignId, planId, uploadAt }),
   uploadToWordpress: (planId: string, publishNow = false) => invoke<void>("upload_to_wordpress", { planId, publishNow }),
   clearCache: () => invoke<{ filesRemoved: number; bytesFreed: number; keptPending: number }>("clear_cache"),
-  uploadCampaign: (campaignId: string) => invoke<number>("upload_campaign", { campaignId, confirm: true }),
+  uploadCampaign: (campaignId: string, publishNow = false) => invoke<number>("upload_campaign", { campaignId, confirm: true, publishNow }),
+  publishUploadedNow: (planId: string) => invoke<void>("publish_uploaded_now", { planId }),
   setPlanTaxonomy: (planId: string, categoryIds: number[], tags: string[]) =>
     invoke<void>("set_plan_taxonomy", { planId, categoryIds, tags }),
   setDefaultCategory: (projectId: string, wpId: number | null) => invoke<void>("set_default_category", { projectId, wpId }),
