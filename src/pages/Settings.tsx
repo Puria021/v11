@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, BackupPreview } from "../api/tauri";
 import { Badge, Button, Card, ErrorBox, inputClass } from "../components/ui";
 import { errorMessage, num } from "../lib/format";
+import { getTheme, setTheme, Theme } from "../lib/theme";
 import Templates from "./Templates";
 import Logs from "./Logs";
 import Updates from "./Updates";
@@ -67,14 +68,45 @@ export default function Settings() {
   );
 }
 
+const THEME_OPTIONS: { id: Theme; label: string }[] = [
+  { id: "light", label: "روشن" },
+  { id: "dark", label: "تاریک" },
+  { id: "system", label: "براساس سیستم" },
+];
+
 function AppInfo() {
   const { data } = useQuery({ queryKey: ["appInfo"], queryFn: api.getAppInfo });
+  const [theme, setThemeState] = useState<Theme>(() => getTheme());
+  const pickTheme = (t: Theme) => {
+    setTheme(t);
+    setThemeState(t);
+  };
   return (
-    <Card className="space-y-3 text-sm">
-      <div className="flex justify-between"><span className="text-slate-500">نسخه‌ی برنامه</span><span>{data?.version ?? "—"}</span></div>
-      <div className="flex justify-between gap-4"><span className="shrink-0 text-slate-500">مسیر داده‌ها</span><span className="ltr break-all text-xs">{data?.dataDir ?? "—"}</span></div>
-      <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">بروزرسانی خودکار هنوز فعال نیست؛ نسخه‌های جدید را به‌صورت نصب‌کننده دریافت کنید.</p>
-    </Card>
+    <div className="space-y-6">
+      <Card className="space-y-3 text-sm">
+        <div className="flex justify-between"><span className="text-slate-500">نسخه‌ی برنامه</span><span>{data?.version ?? "—"}</span></div>
+        <div className="flex justify-between gap-4"><span className="shrink-0 text-slate-500">مسیر داده‌ها</span><span className="ltr break-all text-xs">{data?.dataDir ?? "—"}</span></div>
+        <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">بروزرسانی خودکار هنوز فعال نیست؛ نسخه‌های جدید را به‌صورت نصب‌کننده دریافت کنید.</p>
+      </Card>
+      <Card className="space-y-3 text-sm">
+        <div className="font-semibold">ظاهر برنامه</div>
+        <div role="radiogroup" aria-label="ظاهر برنامه" className="inline-flex flex-wrap gap-2">
+          {THEME_OPTIONS.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={theme === o.id}
+              onClick={() => pickTheme(o.id)}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${theme === o.id ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500">انتخاب «براساس سیستم» حالت تاریک یا روشن ویندوز را دنبال می‌کند.</p>
+      </Card>
+    </div>
   );
 }
 

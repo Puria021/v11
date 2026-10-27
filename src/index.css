@@ -63,3 +63,109 @@ input, textarea, select { font-family: inherit; }
   background-color: #facc15;
   background-image: repeating-linear-gradient(45deg, rgba(120, 53, 15, 0.35) 0 6px, transparent 6px 12px);
 }
+
+/* Quota progress bar (dashboard): fill = remaining share. */
+.quota-bar {
+  position: relative;
+  width: 100%;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: #e2e8f0;
+}
+.quota-bar__fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #2f6fed, #7c3aed);
+  transition: width 0.5s ease;
+}
+.quota-bar__fill--empty { background: linear-gradient(90deg, #f87171, #fb923c); }
+
+/* ---------- Dark theme (applied when <html> has the "dark" class) ----------
+   The components use light utility classes directly, so these overrides remap
+   them. Specificity (.dark + utility) beats the utility itself. */
+:root.dark { color-scheme: dark; }
+.dark body { background-color: #0f172a; color: #e2e8f0; }
+.dark * { scrollbar-color: #475569 #0f172a; }
+
+/* Surfaces */
+.dark .bg-white { background-color: #1e293b; }
+.dark .bg-slate-50 { background-color: #172033; }
+.dark .bg-slate-100 { background-color: #273549; }
+.dark .bg-slate-200 { background-color: #475569; }
+.dark .bg-slate-300 { background-color: #475569; }
+.dark .hover\:bg-slate-50:hover { background-color: #243247; }
+.dark .hover\:bg-slate-100:hover { background-color: #2b3a52; }
+.dark .disabled\:bg-slate-300:disabled { background-color: #475569; }
+
+/* Borders & rings */
+.dark .border-slate-100 { border-color: #283548; }
+.dark .border-slate-200 { border-color: #334155; }
+.dark .border-slate-300 { border-color: #475569; }
+.dark .ring-slate-200 { --tw-ring-color: #334155; }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #283548; }
+
+/* Text */
+.dark .text-slate-800 { color: #e2e8f0; }
+.dark .text-slate-700 { color: #cbd5e1; }
+.dark .text-slate-600 { color: #a8b5c7; }
+.dark .text-slate-500 { color: #94a3b8; }
+.dark .text-slate-400 { color: #7c8ba1; }
+.dark .text-slate-300 { color: #64748b; }
+.dark .placeholder\:text-slate-400::placeholder { color: #7c8ba1; }
+
+/* Brand */
+.dark .bg-brand-50 { background-color: #172a4a; }
+.dark .text-brand-700 { color: #93b4f8; }
+.dark .text-brand-600 { color: #7ea6f7; }
+.dark .ring-brand-100 { --tw-ring-color: #1e3a6e; }
+.dark .border-brand-500 { border-color: #4c7fe8; }
+
+/* Status colours: tinted translucent backgrounds, lighter text */
+.dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.12); }
+.dark .bg-emerald-50\/50 { background-color: rgba(16, 185, 129, 0.08); }
+.dark .hover\:bg-emerald-100:hover { background-color: rgba(16, 185, 129, 0.2); }
+.dark .text-emerald-700 { color: #6ee7b7; }
+.dark .text-emerald-800 { color: #a7f3d0; }
+.dark .border-emerald-200 { border-color: rgba(16, 185, 129, 0.35); }
+.dark .ring-emerald-200 { --tw-ring-color: rgba(16, 185, 129, 0.35); }
+
+.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.12); }
+.dark .text-amber-600 { color: #fbbf24; }
+.dark .text-amber-700 { color: #fcd34d; }
+.dark .text-amber-800 { color: #fde68a; }
+.dark .text-amber-900 { color: #fef3c7; }
+.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.35); }
+.dark .ring-amber-200 { --tw-ring-color: rgba(245, 158, 11, 0.35); }
+
+.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.12); }
+.dark .hover\:bg-red-100:hover { background-color: rgba(239, 68, 68, 0.2); }
+.dark .text-red-600 { color: #f87171; }
+.dark .text-red-700 { color: #fca5a5; }
+.dark .border-red-200,
+.dark .border-red-300 { border-color: rgba(239, 68, 68, 0.4); }
+.dark .ring-red-200 { --tw-ring-color: rgba(239, 68, 68, 0.4); }
+
+/* Form controls that do not use inputClass */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.dark textarea,
+.dark select {
+  background-color: #0f172a;
+  color: #e2e8f0;
+  border-color: #475569;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #64748b; }
+.dark input[type="file"] { color: #cbd5e1; }
+.dark option { background-color: #1e293b; color: #e2e8f0; }
+
+/* Keep special-purpose elements readable */
+.dark .striped-reserved {
+  background-color: #a16207;
+  background-image: repeating-linear-gradient(45deg, rgba(254, 249, 195, 0.25) 0 6px, transparent 6px 12px);
+}
+.dark .quota-bar { background-color: #334155; }
+.dark .ai-btn:disabled {
+  background: #334155 !important;
+  color: #94a3b8 !important;
+}

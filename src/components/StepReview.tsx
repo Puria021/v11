@@ -112,7 +112,8 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
           </thead>
           <tbody>
             {rows.map((a) => {
-              const [label, tone] = STATUS[a.status] ?? [a.status, "gray" as const];
+              const published = a.wpStatus === "publish";
+              const [label, tone] = published ? ["منتشر شد", "green" as const] : STATUS[a.status] ?? [a.status, "gray" as const];
               const catNames = (terms.data ?? []).filter((t) => a.categoryIds.includes(t.wpId)).map((t) => t.name);
               const done = a.status === "DRAFT_CREATED";
               const hasContent = a.wordCount !== null;
@@ -148,12 +149,15 @@ export default function StepReview({ c, onChanged }: { c: CampaignView; onChange
                       {(a.status === "READY_TO_UPLOAD" || (a.status === "FAILED" && hasContent)) && (
                         <>
                           <Button variant="secondary" disabled={uploadOne.isPending} onClick={() => uploadOne.mutate({ id: a.planId, publish: false })}>{a.status === "FAILED" ? "تلاش مجدد آپلود" : "آپلود به وردپرس"}</Button>
-                          <Button variant="danger" disabled={uploadOne.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} بلافاصله در سایت منتشر می‌شود. ادامه می‌دهید؟`)) uploadOne.mutate({ id: a.planId, publish: true }); }}>انتشار فوری</Button>
+                          <button className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300" disabled={uploadOne.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} بلافاصله در سایت منتشر می‌شود. ادامه می‌دهید؟`)) uploadOne.mutate({ id: a.planId, publish: true }); }}>انتشار فوری</button>
                         </>
                       )}
                       {done && a.wordpressUrl && <Button variant="ghost" onClick={() => openUrl(a.wordpressUrl!).catch(fail)}>مشاهده در وردپرس</Button>}
-                      {done && (
-                        <Button variant="danger" disabled={publishNow.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} همین حالا منتشر شود؟ زمان‌بندی آن لغو می‌شود.`)) publishNow.mutate(a.planId); }}>انتشار فوری</Button>
+                      {done && published && (
+                        <span className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">✓ منتشر شد</span>
+                      )}
+                      {done && !published && (
+                        <button className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300" disabled={publishNow.isPending} onClick={() => { if (window.confirm(`مقاله‌ی ${num(a.articleNo)} همین حالا منتشر شود؟ زمان‌بندی آن لغو می‌شود.`)) publishNow.mutate(a.planId); }}>انتشار فوری</button>
                       )}
                     </div>
                   </td>

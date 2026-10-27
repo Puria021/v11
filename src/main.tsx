@@ -3,7 +3,11 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import { initTheme } from "./lib/theme";
 import "./index.css";
+
+// Apply the saved theme before the first render so there is no light flash in dark mode.
+initTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },

@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api, LogQuery } from "../api/tauri";
+import { api, LogQuery, LogRow } from "../api/tauri";
 import { Badge, Button, Card, ErrorBox, inputClass } from "../components/ui";
 import { errorMessage, num } from "../lib/format";
 
 const LEVEL_TONE: Record<string, "gray" | "amber" | "red" | "green"> = { DEBUG: "gray", INFO: "green", WARN: "amber", ERROR: "red" };
+
+/// Plain-text report of the visible log rows, safe to paste into a support request (no keys or tokens are logged).
+function copyReport(items: LogRow[], done: (v: boolean) => void) {
+  const lines = items.slice(0, 200).map((r) => `${r.at} | ${r.level} | ${r.projectName ?? "-"} | ${r.action} | ${r.status} | ${r.message ?? ""}`);
+  const text = ["SEO Master — گزارش خطا", `تعداد: ${items.length}`, ...lines].join("\n");
+  navigator.clipboard.writeText(text).then(() => { done(true); setTimeout(() => done(false), 2500); }).catch(() => done(false));
+}
 
 export default function Logs() {
   const [q, setQ] = useState<LogQuery>({ page: 1, pageSize: 100 });
@@ -14,6 +21,7 @@ export default function Logs() {
   const actions = useQuery({ queryKey: ["logActions"], queryFn: api.listLogActions });
   const logs = useQuery({ queryKey: ["logs", q], queryFn: () => api.listLogs(q), refetchInterval: 5000 });
   const [exported, setExported] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const exp = useMutation({ mutationFn: () => api.exportLogs(q), onSuccess: (p) => { setExported(p); setError(null); }, onError: (e) => setError(errorMessage(e)) });
 
@@ -30,7 +38,12 @@ export default function Logs() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">گزارش‌ها (Logs)</h1>
-        <Button variant="secondary" disabled={exp.isPending} onClick={() => exp.mutate()}>خروجی CSV</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" disabled={!logs.data?.items.length} onClick={() => copyReport(logs.data?.items ?? [], setCopied)}>
+            {copied ? "گزارش کپی شد ✓" : "کپی گزارش برای پشتیبانی"}
+          </Button>
+          <Button variant="secondary" disabled={exp.isPending} onClick={() => exp.mutate()}>خروجی CSV</Button>
+        </div>
       </div>
       {exported && <Card><p className="text-sm">فایل ذخیره شد: <span className="ltr inline-block break-all text-xs">{exported}</span></p></Card>}
       <ErrorBox message={error} />
