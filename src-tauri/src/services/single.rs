@@ -9,6 +9,39 @@ use crate::state::AppState;
 use crate::util::text::language_name;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleRow {
+    pub campaign_id: String,
+    pub plan_id: String,
+    pub keyword: String,
+    pub title: Option<String>,
+    pub status: String,
+    pub wp_status: Option<String>,
+    pub word_count: Option<i64>,
+    pub created_at: String,
+}
+
+/// Single articles, newest first: in progress or finished.
+pub async fn list(state: &AppState) -> AppResult<Vec<SingleRow>> {
+    let rows = sqlx::query_as::<_, SingleRow>(
+        "SELECT c.id AS campaign_id, p.id AS plan_id, k.keyword,
+                (SELECT t.title FROM article_titles t WHERE t.plan_id=p.id AND t.state='APPROVED') AS title,
+                p.status, w.wp_status, ac.word_count, c.created_at
+         FROM campaigns c
+         JOIN article_plans p ON p.campaign_id=c.id
+         JOIN keywords k ON k.id=p.keyword_id
+         LEFT JOIN article_contents ac ON ac.plan_id=p.id
+         LEFT JOIN wordpress_posts w ON w.plan_id=p.id
+         WHERE c.kind='single'
+         ORDER BY c.created_at DESC, c.rowid DESC
+         LIMIT 100",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows)
+}
+
 const MAX_TITLE_CHARS: usize = 200;
 
 #[derive(Debug, Deserialize)]
@@ -120,10 +153,10 @@ pub async fn suggest_titles(state: &AppState, campaign_id: &str) -> AppResult<Ve
     let list: Vec<String> = v
         .get("titles")
         .and_then(|t| t.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s.chars().count() <= MAX_TITLE_CHARS).collect())
+        .map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s.chars().count() <= MAX_TITLE_CHARS && crate::services::qc::count_phrase(s, &keyword) > 0).collect())
         .unwrap_or_default();
     if list.is_empty() {
-        return Err(AppError::validation("AI عنوانی پیشنهاد نداد؛ دوباره تلاش کنید یا عنوان دستی وارد کنید."));
+        return Err(AppError::validation("AI عنوانی که شامل کلمه‌ی کلیدی باشد پیشنهاد نداد؛ دوباره تلاش کنید یا عنوان دستی وارد کنید."));
     }
 
     sqlx::query("UPDATE article_titles SET state='SUPERSEDED' WHERE plan_id=? AND state='SUGGESTED'")

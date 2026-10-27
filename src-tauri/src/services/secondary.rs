@@ -85,7 +85,7 @@ pub async fn generate(state: &AppState, campaign_id: &str, replace: bool) -> App
             if have >= target {
                 break 'related;
             }
-            if kw.chars().count() > 200 || !is_free(&kw, &taken) {
+            if kw.chars().count() > 200 || !crate::services::qc::slug_fits(&kw) || !is_free(&kw, &taken) {
                 continue;
             }
             let src: &'static str = if source == "keyword_api" { "keyword_api" } else { "user" };
@@ -130,7 +130,7 @@ pub async fn generate(state: &AppState, campaign_id: &str, replace: bool) -> App
              Already used (do not repeat or merely rephrase any of these): {taken}\n\n\
              Produce {ask} NEW, distinct secondary keywords. Each must be able to support its own article, \
              cover a different sub-topic, and the set should mix informational, commercial and transactional intents. \
-             Do NOT include search volumes — you do not have that data.\n\
+             Keep every keyword short: at most 6 words and 60 characters, because it becomes the article URL slug, which has a hard length limit. Do NOT include search volumes — you do not have that data.\n\
              Return a JSON array: [{{\"keyword\":\"...\",\"intent\":\"informational|commercial|transactional|navigational\"}}]",
             lang = language_name(&c.language),
             country = c.country,
@@ -152,7 +152,7 @@ pub async fn generate(state: &AppState, campaign_id: &str, replace: bool) -> App
             if have >= target {
                 break;
             }
-            if kw.chars().count() > 200 || !is_free(&kw, &taken) {
+            if kw.chars().count() > 200 || !crate::services::qc::slug_fits(&kw) || !is_free(&kw, &taken) {
                 continue;
             }
             if insert_keyword(&mut tx, &c, NewKeyword::plain(&kw, "secondary", "ai", intent)).await? {

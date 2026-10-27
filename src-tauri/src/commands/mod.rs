@@ -4,6 +4,7 @@ pub mod generation;
 pub mod image_providers;
 pub mod keywords;
 pub mod license;
+pub mod prefs;
 pub mod projects;
 pub mod quota;
 pub mod single;

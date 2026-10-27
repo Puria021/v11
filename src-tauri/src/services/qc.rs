@@ -306,10 +306,18 @@ pub fn validate(input: &QcInput) -> QcReport {
     QcReport { word_count: wc, max_similarity: (max_sim * 100.0).round() / 100.0, errors, warnings }
 }
 
-/// Persian-friendly slug: normalized letters/digits joined by hyphens, max 80 chars.
+/// Hard length limit of the article URL slug (longer slugs are cut by `slugify`).
+pub const SLUG_MAX_CHARS: usize = 80;
+
+/// True when the slug of `s` fits within `SLUG_MAX_CHARS` without being cut.
+pub fn slug_fits(s: &str) -> bool {
+    normalize(s).replace(' ', "-").trim_end_matches('-').chars().count() <= SLUG_MAX_CHARS
+}
+
+/// Persian-friendly slug: normalized letters/digits joined by hyphens, max `SLUG_MAX_CHARS` chars.
 pub fn slugify(s: &str) -> String {
     let n = normalize(s).replace(' ', "-");
-    let mut out: String = n.chars().take(80).collect();
+    let mut out: String = n.chars().take(SLUG_MAX_CHARS).collect();
     while out.ends_with('-') {
         out.pop();
     }
@@ -454,5 +462,7 @@ mod tests {
         assert_eq!(plain_text("<p>a</p><p>b &amp; c</p>").split_whitespace().collect::<Vec<_>>(), vec!["a", "b", "&", "c"]);
         assert_eq!(host_of("https://www.Example.com/"), "example.com");
         assert_eq!(host_of("example.com"), "example.com");
+        assert!(slug_fits("لپ تاپ دانشجویی"));
+        assert!(!slug_fits(&"الف ".repeat(30)));
     }
 }

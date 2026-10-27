@@ -226,6 +226,13 @@ pub async fn edit(state: &AppState, plan_id: &str, title: &str) -> AppResult<Tit
         return Err(AppError::validation("عنوان باید بین ۱ تا ۲۰۰ نویسه باشد."));
     }
     plan_campaign(state, plan_id).await?;
+    let (keyword,): (String,) = sqlx::query_as("SELECT k.keyword FROM article_plans p JOIN keywords k ON k.id=p.keyword_id WHERE p.id=?")
+        .bind(plan_id)
+        .fetch_one(&state.db)
+        .await?;
+    if count_phrase(title, &keyword) == 0 {
+        return Err(AppError::validation(format!("عنوان باید شامل کلمه‌ی کلیدی «{keyword}» باشد.")));
+    }
     let id = ulid::Ulid::new().to_string();
     let mut tx = state.db.begin().await?;
     sqlx::query("UPDATE article_titles SET state='SUPERSEDED' WHERE plan_id=? AND state IN ('APPROVED','SUGGESTED')")

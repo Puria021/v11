@@ -591,6 +591,36 @@ fn encode_watermarked_webp(bytes: &[u8], logo_data_url: &str) -> AppResult<Vec<u
 
 // ------------------------------------------------------------------ image job
 
+const IMAGE_PALETTES: [&str; 8] = [
+    "warm terracotta and cream", "deep teal and sand", "muted olive and ivory", "dusty blue and white",
+    "charcoal with amber accents", "sage green and blush", "navy with copper highlights", "soft lilac and graphite",
+];
+const IMAGE_ANGLES: [&str; 6] = [
+    "close-up macro shot", "wide establishing view", "overhead flat-lay", "three-quarter perspective",
+    "eye-level medium shot", "diagonal composition with strong shadows",
+];
+const IMAGE_SETTINGS: [&str; 6] = [
+    "bright studio", "outdoor natural light", "workshop table", "modern office", "kitchen counter", "city street at dusk",
+];
+
+/// FNV-1a over the plan id, mixed with the current time so every run differs.
+fn plan_seed(plan_id: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in plan_id.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+    mix(h ^ nanos)
+}
+
+fn mix(mut x: u64) -> u64 {
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    x
+}
+
 pub async fn run_image(state: &AppState, job: &Job) -> Result<(), AppError> {
     let plan_id = job.plan_id.as_deref().ok_or_else(|| AppError::internal("job without plan"))?;
     guard_cancel(state, job).await?;
@@ -608,20 +638,35 @@ pub async fn run_image(state: &AppState, job: &Job) -> Result<(), AppError> {
     set_plan_status(state, plan_id, "IMAGE_GENERATING").await;
     emit_progress(state, &ctx.campaign.id).await;
 
-    let full = {
-        let style = ctx.template.image_style.trim();
-        let base = prompt.trim().trim_end_matches('.');
-        if style.is_empty() { format!("{base}. No text, no watermark, no logo.") } else { format!("{base}. {style}. No text, no watermark, no logo.") }
-    };
+    let style = ctx.template.image_style.trim().to_string();
+    let concept = prompt.trim().trim_end_matches('.').to_string();
     let (w, h) = ctx.template.image_size.split_once('x')
         .map(|(w, h)| (w.parse::<i64>().ok(), h.parse::<i64>().ok())).unwrap_or((None, None));
     // Regenerate as a complete set; each image gets a distinct prompt and filename.
     // Do not discard previous results until the replacement set is generated.
     let count = ctx.image_count().clamp(1, 10);
     let mut generated = Vec::new();
+    // Every article and every image gets its own palette, camera angle and setting, so a set of articles
+    // never produces near-identical pictures. The choice also changes on each regeneration.
+    let run_seed = plan_seed(plan_id);
     for ix in 0..count {
         guard_cancel(state, job).await?;
-        let prompt_i = format!("{full} Distinct composition variation {} of {}.", ix + 1, count);
+        let pick = |n: usize, salt: u64| -> usize { (mix(run_seed ^ (ix as u64).wrapping_mul(0x9E37_79B9) ^ salt) % n as u64) as usize };
+        let prompt_i = format!(
+            "Subject: {title} (topic: {keyword}). Concept: {concept}. \
+             Color palette: {palette}. Camera: {angle}. Setting: {setting}. \
+             This is image {n} of {count} for this article: it must look clearly different from the other images of the article, \
+             with a different scene detail and composition. {style_part}No text, no watermark, no logo.",
+            title = ctx.title,
+            keyword = ctx.keyword,
+            concept = concept,
+            palette = IMAGE_PALETTES[pick(IMAGE_PALETTES.len(), 1)],
+            angle = IMAGE_ANGLES[pick(IMAGE_ANGLES.len(), 2)],
+            setting = IMAGE_SETTINGS[pick(IMAGE_SETTINGS.len(), 3)],
+            n = ix + 1,
+            count = count,
+            style_part = if style.is_empty() { String::new() } else { format!("Style: {style}. ") },
+        );
         let img = image_providers::generate(state, &provider, &prompt_i, &ctx.template.image_size).await?;
         let rel = format!("projects/{}/campaigns/{}/images/article-{:03}-{}.webp", ctx.project_id, ctx.campaign.id, ctx.article_no, ix + 1);
         let abs = state.data_dir.join(&rel);

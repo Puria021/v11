@@ -288,9 +288,12 @@ async fn titles_flow_generate_approve_edit_alternative_reject() {
 
     // Manual edit becomes the single approved title.
     let p1 = &l.plans[1];
-    let e = titles::edit(&cx.state, &p1.plan_id, "  عنوان دستی من  ").await.unwrap();
-    assert_eq!(e.title, "عنوان دستی من");
+    let manual = format!("  عنوان دستی من {}  ", p1.keyword);
+    let e = titles::edit(&cx.state, &p1.plan_id, &manual).await.unwrap();
+    assert_eq!(e.title, format!("عنوان دستی من {}", p1.keyword));
     assert_eq!(titles::edit(&cx.state, &p1.plan_id, "   ").await.unwrap_err().code, "VALIDATION");
+    // A manual title must contain the plan's keyword.
+    assert_eq!(titles::edit(&cx.state, &p1.plan_id, "عنوانی بدون کلمه").await.unwrap_err().code, "VALIDATION");
 
     // Alternative: new, different title; an approved title goes back to pending.
     let alt = titles::alternative(&cx.state, &p0.plan_id).await.unwrap();

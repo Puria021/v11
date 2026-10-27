@@ -8,6 +8,7 @@ pub mod image_providers;
 pub mod keywords;
 pub mod license;
 pub mod logs;
+pub mod prefs;
 pub mod projects;
 pub mod quota;
 pub mod single;
