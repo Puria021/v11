@@ -100,7 +100,24 @@ pub async fn generate(state: &AppState, campaign_id: &str, replace: bool) -> App
     tx.commit().await?;
 
     // 2) AI rounds for the rest. No transaction is held while waiting for the AI.
-    let seeds: Vec<&str> = basis.iter().map(|b| b.0.as_str()).collect();
+    // The keywords selected in step 2 are the main basis; the primary keywords only give context.
+    let selected: Vec<String> = sqlx::query_as::<_, (String,)>(
+        "SELECT keyword FROM keywords WHERE campaign_id=? AND role='candidate' AND is_selected=1 ORDER BY rowid",
+    )
+    .bind(campaign_id)
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .map(|r| r.0)
+    .collect();
+    let primaries: Vec<String> = sqlx::query_as::<_, (String,)>("SELECT keyword FROM keywords WHERE campaign_id=? AND role='primary' ORDER BY rowid")
+        .bind(campaign_id)
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|r| r.0)
+        .collect();
+    let seeds: Vec<&str> = if selected.is_empty() { basis.iter().map(|b| b.0.as_str()).collect() } else { selected.iter().map(|s| s.as_str()).collect() };
     let mut rounds = 0;
     let mut stalls = 0;
     while have < target && rounds < MAX_ROUNDS && stalls < 2 {
@@ -109,7 +126,7 @@ pub async fn generate(state: &AppState, campaign_id: &str, replace: bool) -> App
         let ask = (need + need / 2 + 5).clamp(10, 80);
         let system = "You are an SEO content strategist. Reply with ONLY valid JSON, no commentary.";
         let user = format!(
-            "Language: {lang}. Target country: {country}.\nMain keywords: {seeds}\n\
+            "Language: {lang}. Target country: {country}.\nSelected topic keywords (base every new keyword on these): {seeds}\nMain keywords (context only): {primaries}\n\
              Already used (do not repeat or merely rephrase any of these): {taken}\n\n\
              Produce {ask} NEW, distinct secondary keywords. Each must be able to support its own article, \
              cover a different sub-topic, and the set should mix informational, commercial and transactional intents. \
@@ -118,6 +135,7 @@ pub async fn generate(state: &AppState, campaign_id: &str, replace: bool) -> App
             lang = language_name(&c.language),
             country = c.country,
             seeds = serde_json::to_string(&seeds).unwrap_or_default(),
+            primaries = serde_json::to_string(&primaries).unwrap_or_default(),
             taken = serde_json::to_string(&taken.iter().take(150).collect::<Vec<_>>()).unwrap_or_default(),
         );
         let v = match ai::complete_json(state, &provider, system, &user, Some(3500)).await {

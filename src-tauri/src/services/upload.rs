@@ -135,6 +135,7 @@ pub async fn set_schedule(state: &AppState, campaign_id: &str, plan_id: Option<&
                 let (wp_status, date) = wp_target(state, at).await?;
                 let (client, _) = wp::build_client(state, &project_id).await?;
                 client.set_post_status(wp_id, &wp_status, date.as_deref()).await.map_err(|e| wp::refine(state, e))?;
+                sqlx::query("UPDATE wordpress_posts SET wp_status=? WHERE plan_id=?").bind(&wp_status).bind(id).execute(&state.db).await?;
                 changed += 1;
             }
         } else if matches!(status.as_str(), "READY_TO_UPLOAD" | "FAILED") {
@@ -204,6 +205,7 @@ pub async fn publish_uploaded_now(state: &AppState, plan_id: &str) -> AppResult<
     let (client, _) = wp::build_client(state, &project_id).await?;
     client.set_post_status(wp_id, "publish", Some(&now)).await.map_err(|e| wp::refine(state, e))?;
     sqlx::query("UPDATE article_plans SET upload_at=NULL WHERE id=?").bind(plan_id).execute(&state.db).await?;
+    sqlx::query("UPDATE wordpress_posts SET wp_status='publish' WHERE plan_id=?").bind(plan_id).execute(&state.db).await?;
     generation::emit_progress(state, &project_id).await;
     Ok(())
 }
@@ -416,11 +418,12 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
     }
 
     sqlx::query(
-        "UPDATE wordpress_posts SET upload_status='UPLOADED', wordpress_post_id=?, wordpress_url=?, last_error=NULL,
+        "UPDATE wordpress_posts SET upload_status='UPLOADED', wordpress_post_id=?, wordpress_url=?, last_error=NULL, wp_status=?,
          uploaded_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE plan_id=?",
     )
     .bind(post.id)
     .bind(&post.link)
+    .bind(&wp_status)
     .bind(plan_id)
     .execute(&state.db)
     .await?;

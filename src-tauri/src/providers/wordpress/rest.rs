@@ -63,6 +63,16 @@ impl RestWordPressClient {
         Ok(self.get(&path).await?.0)
     }
 
+    /// True when WooCommerce is active: its products are exposed as the `product` post type in REST.
+    /// A 404 here means the plugin is not installed or not active.
+    pub async fn woocommerce_active(&self) -> Result<bool, ProviderError> {
+        match self.get("wp/v2/product?per_page=1").await {
+            Ok(_) => Ok(true),
+            Err(e) if e.status == Some(404) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn post_status(&self, id: i64, status: &str, date_gmt: Option<&str>) -> Result<(), ProviderError> {
         let mut body = serde_json::json!({ "status": status });
         if let Some(d) = date_gmt {
