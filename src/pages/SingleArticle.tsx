@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, CampaignView, TitleOption } from "../api/tauri";
+import { api, CampaignView, SingleRow, TitleOption } from "../api/tauri";
+import { STATUS } from "../components/StepGenerate";
+import { Badge } from "../components/ui";
+import { formatJalali } from "../lib/jalali";
 import { Button, Card, ErrorBox, inputClass } from "../components/ui";
 import StepGenerate from "../components/StepGenerate";
 import StepReview from "../components/StepReview";
@@ -23,6 +26,7 @@ export default function SingleArticle() {
   const refreshCampaign = () => {
     if (campaignId) qc.invalidateQueries({ queryKey: ["campaign", campaignId] });
     qc.invalidateQueries({ queryKey: ["quota"] });
+    qc.invalidateQueries({ queryKey: ["singleArticles"] });
   };
 
   const c: CampaignView | undefined = campaign.data;
@@ -93,7 +97,73 @@ export default function SingleArticle() {
         </>
       )}
       {step >= 3 && !c && <p className="text-sm text-slate-500">در حال بارگذاری…</p>}
+
+      <SingleHistory
+        activeCampaignId={campaignId}
+        onOpen={(row) => {
+          setCampaignId(row.campaignId);
+          setPlanId(row.planId);
+          setStep(3);
+          refreshCampaign();
+        }}
+      />
     </div>
+  );
+}
+
+/** Single articles that are in progress or finished. Selecting one resumes it in the tab above. */
+function SingleHistory({ activeCampaignId, onOpen }: { activeCampaignId: string | null; onOpen: (row: SingleRow) => void }) {
+  const rows = useQuery({
+    queryKey: ["singleArticles"],
+    queryFn: api.listSingleArticles,
+    refetchInterval: (q) => (q.state.data?.some((r) => !["DRAFT_CREATED", "READY_TO_UPLOAD", "FAILED", "CANCELLED"].includes(r.status)) ? 3000 : false),
+  });
+  const list = rows.data ?? [];
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold">مقاله‌های تکی</div>
+        <Button variant="ghost" onClick={() => rows.refetch()}>↻ بروزرسانی</Button>
+      </div>
+      {list.length === 0 && <p className="text-sm text-slate-500">هنوز مقاله‌ی تکی ساخته نشده است.</p>}
+      {list.length > 0 && (
+        <div className="overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <tr>
+                <th className="px-3 py-2 text-start">عنوان / کلمه‌ی کلیدی</th>
+                <th className="px-3 py-2 text-start">وضعیت</th>
+                <th className="px-3 py-2 text-start">کلمات</th>
+                <th className="px-3 py-2 text-start">تاریخ</th>
+                <th className="px-3 py-2 text-start">عملیات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((r) => {
+                const published = r.wpStatus === "publish";
+                const [label, tone] = published ? ["منتشر شد", "green" as const] : STATUS[r.status] ?? [r.status, "gray" as const];
+                return (
+                  <tr key={r.campaignId} className="border-t border-slate-100 dark:border-slate-700">
+                    <td className="px-3 py-2">
+                      <div>{r.title ?? r.keyword}</div>
+                      {r.title && <div className="text-xs text-slate-500">کلمه‌ی کلیدی: {r.keyword}</div>}
+                    </td>
+                    <td className="px-3 py-2"><Badge tone={tone}>{label}</Badge></td>
+                    <td className="px-3 py-2">{r.wordCount ?? "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs">{formatJalali(r.createdAt)}</td>
+                    <td className="px-3 py-2">
+                      <Button variant={activeCampaignId === r.campaignId ? "secondary" : "ghost"} onClick={() => onOpen(r)}>
+                        {activeCampaignId === r.campaignId ? "در حال نمایش" : "باز کردن"}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 

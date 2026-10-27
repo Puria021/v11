@@ -175,6 +175,11 @@ export type SingleInput = {
   externalFollow: boolean; cta: string | null;
 };
 export type SingleCreated = { campaignId: string; planId: string };
+export type SingleRow = {
+  campaignId: string; planId: string; keyword: string; title: string | null; status: string;
+  wpStatus: string | null; wordCount: number | null; createdAt: string;
+};
+export type AppPrefs = { classicEditor: boolean };
 export type TitleOption = { id: string; title: string };
 export type ArticlePatch = {
   title: string; slug: string; excerpt: string; contentHtml: string; metaTitle: string; metaDescription: string;
@@ -224,6 +229,9 @@ export const api = {
   getDashboardStats: () => invoke<DashboardStats>("get_dashboard_stats"),
   getQuota: () => invoke<Quota>("get_quota"),
   createSingleArticle: (input: SingleInput) => invoke<SingleCreated>("create_single_article", { input }),
+  listSingleArticles: () => invoke<SingleRow[]>("list_single_articles"),
+  getAppPrefs: () => invoke<AppPrefs>("get_app_prefs"),
+  saveAppPrefs: (prefs: AppPrefs) => invoke<AppPrefs>("save_app_prefs", { prefs }),
   suggestSingleTitles: (campaignId: string) => invoke<TitleOption[]>("suggest_single_titles", { campaignId }),
 
   resetApplication: (confirmation: string) => invoke<void>("reset_application", { confirmation }),

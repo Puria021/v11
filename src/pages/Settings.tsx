@@ -54,7 +54,7 @@ export default function Settings() {
           </button>
         ))}
       </nav>
-      {tab === "general" && <AppInfo />}
+      {tab === "general" && <><PrefsCard /><AppInfo /></>}
       {tab === "license" && <LicenseCard />}
       {tab === "updates" && <Updates />}
       {tab === "templates" && <Templates />}
@@ -73,6 +73,39 @@ const THEME_OPTIONS: { id: Theme; label: string }[] = [
   { id: "dark", label: "تاریک" },
   { id: "system", label: "براساس سیستم" },
 ];
+
+function PrefsCard() {
+  const qc = useQueryClient();
+  const prefs = useQuery({ queryKey: ["appPrefs"], queryFn: api.getAppPrefs });
+  const [error, setError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (classicEditor: boolean) => api.saveAppPrefs({ classicEditor }),
+    onSuccess: () => { setError(null); qc.invalidateQueries({ queryKey: ["appPrefs"] }); },
+    onError: (e) => setError(errorMessage(e)),
+  });
+  const on = prefs.data?.classicEditor ?? false;
+  return (
+    <Card className="space-y-3 text-sm">
+      <div className="font-semibold">ویرایشگر وردپرس</div>
+      <label className="flex cursor-pointer items-start justify-between gap-4">
+        <span className="space-y-1">
+          <span className="block font-medium">فعال کردن ویرایشگر کلاسیک</span>
+          <span className="block text-xs text-slate-500">
+            مقاله‌ها به‌صورت یک بلوک «کلاسیک» در وردپرس ساخته می‌شوند تا با ویرایشگر کلاسیک باز شوند. برای سایت‌هایی که افزونه‌ی Classic Editor دارند یا ویرایشگر بلوکی را ترجیح می‌دهند، خاموش بگذارید.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          className="mt-1 h-5 w-9 shrink-0 cursor-pointer accent-brand-600"
+          checked={on}
+          disabled={!prefs.data || save.isPending}
+          onChange={(e) => save.mutate(e.target.checked)}
+        />
+      </label>
+      <ErrorBox message={error} />
+    </Card>
+  );
+}
 
 function AppInfo() {
   const { data } = useQuery({ queryKey: ["appInfo"], queryFn: api.getAppInfo });
