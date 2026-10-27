@@ -169,3 +169,15 @@
 - فرم پروژه: فیلد «تعداد پیش‌فرض مقالات هر کمپین» حذف شد.
 - گزارش‌ها: دکمه‌ی «کپی گزارش برای پشتیبانی» (بدون کلید و توکن).
 - به‌روزرسانی: قبل از نصب، یک نسخه‌ی پشتیبان از داده‌ها ساخته می‌شود.
+
+## انتشار نسخه (workflow و امضا)
+- `.github/workflows/build-windows.yml` بازنویسی شد:
+  - آدرس دانلود و `latest.json` روی هاست `https://update.codeappmaster.ir` تنظیم شد (`downloads/<نام فایل>`).
+  - آپلود نصب‌کننده و `latest.json` به هاست با FTP انجام می‌شود (Secrets: `FTP_HOST`، `FTP_USER`، `FTP_PASSWORD`، `FTP_REMOTE_DIR`، و در صورت نیاز `FTP_USE_SSL`). ابتدا نصب‌کننده و سپس `latest.json` آپلود می‌شود.
+  - امضای Authenticode فقط وقتی فعال می‌شود که `WINDOWS_CERT_BASE64` و `WINDOWS_CERT_PASSWORD` تنظیم باشند. در غیر این صورت بیلد بدون امضا انجام می‌شود.
+  - برای تگ‌های `v*` فایل `latest.json` ساخته و امضای updater از `.sig` خوانده می‌شود.
+  - آرشیو در GitHub اختیاری است و فقط با `RELEASES_TOKEN` انجام می‌شود.
+  - تست‌های Rust با `--no-fail-fast` اجرا می‌شوند.
+- `scripts/sign-windows.ps1` (جدید): امضای Authenticode با `signtool` و بررسی امضا با `verify /pa`. مسیر و رمز گواهی از `SIGN_PFX` و `SIGN_PASSWORD` خوانده می‌شوند.
+- Secrets لازم برای انتشار کامل: `TAURI_SIGNING_PRIVATE_KEY`، `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`، متغیر `TAURI_UPDATER_PUBLIC_KEY` و Secrets مربوط به FTP.
+- بیلد غیرتگی هم حالا فایل `.sig` می‌سازد و در artifact تست (`MyArticleManager-Windows-NSIS-Test`) کنار نصب‌کننده قرار می‌گیرد. انتشار روی FTP همچنان فقط برای تگ‌های `v*` است.
