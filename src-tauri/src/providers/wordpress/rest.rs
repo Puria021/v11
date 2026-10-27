@@ -63,6 +63,24 @@ impl RestWordPressClient {
         Ok(self.get(&path).await?.0)
     }
 
+    pub async fn post_status(&self, id: i64, status: &str, date_gmt: Option<&str>) -> Result<(), ProviderError> {
+        let mut body = serde_json::json!({ "status": status });
+        if let Some(d) = date_gmt {
+            body["date_gmt"] = serde_json::json!(d);
+        }
+        match self.post_json(&format!("wp/v2/posts/{id}"), &body).await {
+            Ok(_) => Ok(()),
+            Err(_) if self.user.trim().is_empty() => {
+                let mut fields = vec![("id", id.to_string()), ("status", status.to_string())];
+                if let Some(d) = date_gmt {
+                    fields.push(("date_gmt", d.to_string()));
+                }
+                self.admin_ajax_bridge("mamb_post_status", &fields).await.map(|_| ())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn update_product_description(&self, id: i64, description: &str) -> Result<(), ProviderError> {
         let rest = self.post_json(&format!("myarticle/v1/products/{id}/description"), &serde_json::json!({"description": description})).await;
         match rest {
@@ -412,6 +430,10 @@ impl WordPressClient for RestWordPressClient {
         self.post_json(&format!("wp/v2/media/{id}"), &serde_json::json!({"title": title, "alt_text": alt_text, "caption": caption}))
             .await
             .map(|_| ())
+    }
+
+    async fn set_post_status(&self, id: i64, status: &str, date_gmt: Option<&str>) -> Result<(), ProviderError> {
+        self.post_status(id, status, date_gmt).await
     }
 
     async fn create_post(&self, p: NewPost) -> Result<PostRef, ProviderError> {

@@ -158,12 +158,12 @@ fn build_prompts(c: &Ctx) -> (String, String) {
     let kw = c.keyword.as_str();
     u.push_str(&format!(
         "\nMANDATORY SEO RULES (every rule must be satisfied, the output is rejected otherwise):\n\
-         - Use the exact focus phrase \"{kw}\" (same word order, complete phrase, never split) between {min} and {max} times in the body; aim for about {mid}.\n\
+         - Use the exact focus phrase \"{kw}\" (same word order, complete phrase, never split) about {mid} times in the body.\n\
          - The exact focus phrase must appear at least once within the first 150 words of the body.\n\
          - Keep every paragraph at most 80 words. Use many short paragraphs instead of long blocks.\n\
          - Include at least 2 external links (<a href=\"https://...\">) to relevant, authoritative sources: official organizations, standards bodies, encyclopedias, major research or industry publications. Use only real, stable homepage or major-section URLs you are certain exist; never invent deep links. Never link to competitor websites, including Iranian competitors, and never use rel=\"nofollow\".\n\
          - Where it fits naturally, use numbers in some headings (for example \"۵ روش ...\" or \"۳ اشتباه رایج ...\").\n",
-        min = qc::KEYWORD_MIN_USES, max = qc::KEYWORD_MAX_USES, mid = (qc::KEYWORD_MIN_USES + qc::KEYWORD_MAX_USES) / 2,
+        mid = qc::KEYWORD_TARGET,
     ));
     if !t.forbidden_topics.trim().is_empty() {
         u.push_str(&format!("\nDo NOT mention or discuss:\n{}\n", t.forbidden_topics));
@@ -286,7 +286,14 @@ fn assemble(c: &Ctx, v: &Value, others: &[String]) -> Result<Assembled, Vec<Stri
     let slug = qc::slugify(&c.keyword);
     if slug.is_empty() { return Err(vec!["کلمه کلیدی برای ساخت اسلاگ معتبر نیست.".into()]); }
     let meta_title = { let m = s("meta_title"); qc::truncate_chars(if m.is_empty() { &c.title } else { &m }, 70) };
-    let meta_description = { let m = s("meta_description"); qc::truncate_chars(if m.is_empty() { &excerpt } else { &m }, 170) };
+    // The exact focus keyword must appear in the meta description (SEO plugins check it).
+    let meta_description = {
+        let m = s("meta_description");
+        let base = if m.is_empty() { excerpt.clone() } else { m };
+        let kw = c.keyword.trim();
+        let text = if kw.is_empty() || base.contains(kw) { base } else { format!("{kw}: {base}") };
+        qc::truncate_chars(&text, 170)
+    };
     let image_prompt = {
         let p = s("image_prompt");
         if p.is_empty() { format!("A clean, modern featured image illustrating: {}", c.keyword) } else { p }

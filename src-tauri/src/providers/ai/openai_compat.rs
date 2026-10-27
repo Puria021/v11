@@ -1,6 +1,6 @@
 //! OpenAI-compatible Chat Completions client (OpenAI, OpenRouter, local gateways, ...).
 
-use super::http::{build_client, empty_reply, map_send_error, send_json, status_error};
+use super::http::{build_client, empty_reply, map_send_error, status_error};
 use super::{AiProvider, TextRequest};
 use crate::providers::{ProviderError, ProviderErrorKind};
 use async_trait::async_trait;

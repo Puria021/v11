@@ -213,6 +213,7 @@ pub fn run() {
             commands::generation::get_queue_settings,
             commands::generation::update_queue_settings,
             commands::tools::upload_to_wordpress,
+            commands::tools::publish_uploaded_now,
             commands::tools::clear_cache,
             commands::tools::upload_campaign,
             commands::tools::set_plan_taxonomy,

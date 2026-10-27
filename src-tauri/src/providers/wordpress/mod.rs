@@ -48,7 +48,7 @@ pub struct MediaRef {
 #[derive(Debug, Clone)]
 pub struct NewPost {
     /// "draft" or "publish".
-    pub status: &'static str,
+    pub status: String,
     /// WordPress publish date in GMT, "YYYY-MM-DDTHH:MM:SS". None = WordPress default.
     pub date_gmt: Option<String>,
     pub title: String,
@@ -73,8 +73,10 @@ pub trait WordPressClient: Send + Sync {
     async fn fetch_taxonomies(&self) -> Result<Taxonomies, ProviderError>;
     async fn upload_media(&self, m: MediaUpload) -> Result<MediaRef, ProviderError>;
     async fn update_media_meta(&self, id: i64, title: &str, alt_text: &str, caption: &str) -> Result<(), ProviderError>;
-    /// Always creates the post with status `draft`.
+    /// Creates the post with `p.status` ("draft", "future" or "publish").
     async fn create_post(&self, p: NewPost) -> Result<PostRef, ProviderError>;
+    /// Changes status and, when given, the GMT publish date ("YYYY-MM-DDTHH:MM:SS").
+    async fn set_post_status(&self, id: i64, status: &str, date_gmt: Option<&str>) -> Result<(), ProviderError>;
     /// Looks for an existing post with this slug in any status (used to adopt a post created by an
     /// earlier attempt whose response was lost).
     async fn find_post_by_slug(&self, slug: &str) -> Result<Option<PostRef>, ProviderError>;

@@ -212,13 +212,13 @@ async fn auth_failure_marks_failed_and_can_be_retried() {
 async fn campaign_upload_gate_default_category_and_logs() {
     let cx = setup(2, false).await;
     mount_wp(&cx.server, 201).await;
-    assert_eq!(upload::enqueue_campaign(&cx.state, &cx.campaign_id, false).await.unwrap_err().code, "VALIDATION");
+    assert_eq!(upload::enqueue_campaign(&cx.state, &cx.campaign_id, false, false).await.unwrap_err().code, "VALIDATION");
     assert_eq!(upload::set_default_category(&cx.state, &cx.project_id, Some(3)).await.unwrap_err().code, "VALIDATION", "must be a synced category");
     sqlx::query("INSERT INTO wp_terms (id, project_id, kind, wp_id, name) VALUES ('c3', ?, 'category', 3, 'اخبار')").bind(&cx.project_id).execute(&cx.state.db).await.unwrap();
     upload::set_default_category(&cx.state, &cx.project_id, Some(3)).await.unwrap();
     assert_eq!(projects::get(&cx.state, &cx.project_id).await.unwrap().default_category_wp_id, Some(3));
 
-    assert_eq!(upload::enqueue_campaign(&cx.state, &cx.campaign_id, true).await.unwrap(), 2);
+    assert_eq!(upload::enqueue_campaign(&cx.state, &cx.campaign_id, true, false).await.unwrap(), 2);
     drain(&cx).await;
     let bodies: Vec<Value> = reqs(&cx.server, "POST", "/wp-json/wp/v2/posts").await.iter().map(|r| serde_json::from_slice(&r.body).unwrap()).collect();
     assert_eq!(bodies.len(), 2);
