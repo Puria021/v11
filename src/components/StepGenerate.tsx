@@ -69,7 +69,8 @@ export default function StepGenerate({ c, onChanged, next }: { c: CampaignView; 
   useEffect(() => {
     if (autoStarted.current || !progress.isSuccess || !progress.data || !allApproved || !ready) return;
     const d = progress.data;
-    if (d.campaignStatus !== "DRAFT" || d.content.done > 0 || d.queued > 0) return;
+    // Plans are confirmed as IN_PROGRESS before anything is queued, so both states mean "not started yet".
+    if (!["DRAFT", "IN_PROGRESS"].includes(d.campaignStatus) || d.content.done > 0 || d.queued > 0 || d.running > 0) return;
     autoStarted.current = true;
     start.mutate();
   }, [progress.isSuccess, progress.data, allApproved, ready]);
@@ -98,7 +99,9 @@ export default function StepGenerate({ c, onChanged, next }: { c: CampaignView; 
           {status === "IN_PROGRESS" && <Button variant="secondary" disabled={pause.isPending} onClick={() => pause.mutate()}>توقف موقت</Button>}
           {status === "PAUSED" && <Button disabled={resume.isPending} onClick={() => resume.mutate()}>ادامه</Button>}
           {(status === "IN_PROGRESS" || status === "PAUSED") && <Button variant="danger" onClick={() => setConfirmCancel(true)}>لغو</Button>}
-          {(p?.complete ?? 0) > 0 && <Button variant="secondary" onClick={next}>ادامه: ویرایش و آپلود ←</Button>}
+          {(p?.complete ?? 0) > 0 && (
+            <button className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" onClick={next}>ادامه: ویرایش و آپلود ←</button>
+          )}
           {(p?.failed ?? 0) > 0 && <Button variant="secondary" disabled={retryFailed.isPending} onClick={() => retryFailed.mutate()}>تلاش مجدد برای همه ({num(p!.failed)} مورد)</Button>}
         </div>
         {status === "PAUSED" && <p className="text-xs text-amber-700">متوقف شد؛ کارهای در حال اجرا تمام می‌شوند ولی کار جدیدی شروع نمی‌شود.</p>}

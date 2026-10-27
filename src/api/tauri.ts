@@ -65,6 +65,18 @@ export type TestResult = { success: boolean; site: string; user: string; wpVersi
 export type SyncResult = { categories: number; tags: number; authors: number; postTypes: number };
 export type Term = { wpId: number; name: string; slug: string | null; parentWpId: number | null };
 
+export type QuotaBucket = {
+  /** Total allowed by the license (articles: 10, product descriptions: 5). */
+  total: number;
+  /** Already written. */
+  used: number;
+  /** total - used: what the user sees as "remaining". */
+  remaining: number;
+  /** Still available for new campaigns or single articles (remaining minus planned but unwritten articles). */
+  available: number;
+};
+export type Quota = { articles: QuotaBucket; products: QuotaBucket };
+
 export type DashboardStats = {
   projects: number;
   campaigns: number;
@@ -155,7 +167,15 @@ export type ArticleRow = {
   planId: string; articleNo: number; keyword: string; title: string | null; status: string;
   failedStage: string | null; lastError: string | null; wordCount: number | null; hasImage: number;
   categoryIds: number[]; tags: string[]; uploadStatus: string | null; wordpressPostId: number | null; wordpressUrl: string | null; uploadAt: string | null;
+  /** Remote WordPress status: "draft", "future", "publish" (null before upload). */
+  wpStatus: string | null;
 };
+export type SingleInput = {
+  projectId: string; keyword: string; imageCount: number; externalUrl: string | null; externalTitle: string | null;
+  externalFollow: boolean; cta: string | null;
+};
+export type SingleCreated = { campaignId: string; planId: string };
+export type TitleOption = { id: string; title: string };
 export type ArticlePatch = {
   title: string; slug: string; excerpt: string; contentHtml: string; metaTitle: string; metaDescription: string;
   faq: { q: string; a: string }[];
@@ -202,6 +222,9 @@ export const api = {
   activateLicense: (apiKey: string) => invoke<LicenseStatus>("activate_license", { apiKey }),
   checkInternet: () => invoke<boolean>("check_internet"),
   getDashboardStats: () => invoke<DashboardStats>("get_dashboard_stats"),
+  getQuota: () => invoke<Quota>("get_quota"),
+  createSingleArticle: (input: SingleInput) => invoke<SingleCreated>("create_single_article", { input }),
+  suggestSingleTitles: (campaignId: string) => invoke<TitleOption[]>("suggest_single_titles", { campaignId }),
 
   resetApplication: (confirmation: string) => invoke<void>("reset_application", { confirmation }),
   listProjects: () => invoke<ProjectCard[]>("list_projects"),
@@ -290,7 +313,8 @@ export const api = {
   setUploadSchedule: (campaignId: string, planId: string | null, uploadAt: string | null) => invoke<number>("set_upload_schedule", { campaignId, planId, uploadAt }),
   uploadToWordpress: (planId: string, publishNow = false) => invoke<void>("upload_to_wordpress", { planId, publishNow }),
   clearCache: () => invoke<{ filesRemoved: number; bytesFreed: number; keptPending: number }>("clear_cache"),
-  uploadCampaign: (campaignId: string) => invoke<number>("upload_campaign", { campaignId, confirm: true }),
+  uploadCampaign: (campaignId: string, publishNow = false) => invoke<number>("upload_campaign", { campaignId, confirm: true, publishNow }),
+  publishUploadedNow: (planId: string) => invoke<void>("publish_uploaded_now", { planId }),
   setPlanTaxonomy: (planId: string, categoryIds: number[], tags: string[]) =>
     invoke<void>("set_plan_taxonomy", { planId, categoryIds, tags }),
   setDefaultCategory: (projectId: string, wpId: number | null) => invoke<void>("set_default_category", { projectId, wpId }),

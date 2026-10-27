@@ -12,6 +12,7 @@ import Campaigns from "./pages/Campaigns";
 import Products from "./pages/Products";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import CampaignWizard from "./pages/CampaignWizard";
+import SingleArticle from "./pages/SingleArticle";
 import { Badge } from "./components/ui";
 import WhatsNew from "./components/WhatsNew";
 
@@ -19,6 +20,7 @@ const NAV = [
   { to: "/", label: "داشبورد", end: true },
   { to: "/projects", label: "پروژه‌ها" },
   { to: "/campaigns", label: "کمپین‌ها" },
+  { to: "/single", label: "مقاله‌ی تکی" },
   { to: "/products", label: "توضیحات محصولات" },
   { to: "/settings", label: "تنظیمات" },
 ];
@@ -81,6 +83,7 @@ export default function App() {
           <Route path="/projects/:id" element={<ProjectDetail online={online} />} />
           <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/campaigns/:id" element={<CampaignWizard online={online} />} />
+          <Route path="/single" element={<SingleArticle />} />
           <Route path="/license" element={<Navigate to="/settings?tab=license" replace />} />
           {/* Templates, reports and updates now live in Settings. */}
           <Route path="/templates" element={<Navigate to="/settings?tab=templates" replace />} />

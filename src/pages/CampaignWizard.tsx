@@ -183,10 +183,6 @@ function StepKeywords({ c, onChanged, next }: { c: CampaignView; onChanged: () =
   return (
     <div className="space-y-4">
       <Card className="space-y-3">
-        <p className="text-xs leading-6 text-slate-500">
-          حجم جستجو، رقابت و CPC فقط از داده‌ی واقعی شما (فایل CSV خروجی ابزارهای کلمه‌ی کلیدی) می‌آید. پیشنهادهای AI هیچ‌وقت عدد جستجو ندارند.
-          ستون‌های CSV: <span className="ltr inline-block">keyword, search_volume, competition, cpc, trend, related</span>. اگر رقابت/CPC خط تیره است، این مقادیر در CSV وارد نشده‌اند. برای نمایش، CSV خروجی Keyword Planner یا ابزار تحقیق کلمات را با این ستون‌ها ایمپورت کنید.
-        </p>
         <div className="flex flex-wrap items-center gap-2">
           <input ref={fileRef} type="file" accept=".csv,.txt,text/csv" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) importCsv.mutate(f); e.target.value = ""; }} />
@@ -292,7 +288,10 @@ function StepSecondary({ c, locked, onChanged, next }: { c: CampaignView; locked
     <div className="space-y-4">
       <Card className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-lg font-semibold">{num(c.secondaryCount)} / {num(c.targetCount)} کلمه‌ی ثانویه</div>
+          <div>
+            <div className="text-lg font-semibold">{num(c.secondaryCount)} / {num(c.targetCount)} کلمه‌ی ثانویه</div>
+            <div className="text-xs text-slate-500">پیشنهادها بر اساس {num(c.selectedCount)} کلمه‌ی انتخاب‌شده در مرحله‌ی ۲ و کلمات اصلی ساخته می‌شود.</div>
+          </div>
           {!locked && (
             <div className="flex flex-wrap gap-2">
               <Button className="ai-btn" disabled={generate.isPending || !c.aiProviderId} onClick={() => { setMsg(null); setError(null); generate.mutate(c.secondaryCount > 0 && !ready ? false : true); }}>

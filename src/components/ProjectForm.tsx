@@ -21,7 +21,8 @@ export default function ProjectForm({
     logoDataUrl: project?.logoDataUrl ?? "",
     targetAudience: project?.targetAudience ?? "",
     phone: project?.phone ?? "",
-    defaultArticleCount: project?.defaultArticleCount ?? 60,
+    // Not shown in the form; the stored value is kept (new projects start at 10).
+    defaultArticleCount: project?.defaultArticleCount ?? 10,
     defaultCountry: project?.defaultCountry ?? "IR",
     defaultLanguage: project?.defaultLanguage ?? "fa",
   });
@@ -44,10 +45,7 @@ export default function ProjectForm({
         <Field label="آدرس سایت" hint="مثال: https://example.com">
           <input className={`${inputClass} ltr`} value={f.siteUrl} onChange={(e) => set("siteUrl", e.target.value)} />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="شماره تماس برای CTA"><input className={`${inputClass} ltr`} type="tel" value={f.phone} onChange={(e) => set("phone", e.target.value)} /></Field>
-          <Field label="تعداد پیش‌فرض مقالات هر کمپین"><input className={`${inputClass} ltr`} type="number" min={1} max={200} value={f.defaultArticleCount} onChange={(e) => set("defaultArticleCount", Number(e.target.value))} /></Field>
-        </div>
+        <Field label="شماره تماس برای CTA"><input className={`${inputClass} ltr`} type="tel" value={f.phone} onChange={(e) => set("phone", e.target.value)} /></Field>
         <Field label="لوگوی پروژه برای واترمارک" hint="PNG، JPG یا WebP؛ حداکثر ۲ مگابایت. تصویر شفاف PNG پیشنهاد می‌شود.">
           <input className={inputClass} type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => {
             const file = e.target.files?.[0];

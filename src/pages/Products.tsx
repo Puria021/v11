@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ProductItem } from "../api/tauri";
 import { Button, Card, ErrorBox, inputClass } from "../components/ui";
 import { errorMessage, num } from "../lib/format";
 
+const QUOTA_DONE_TIP = "سهمیه‌ی توضیحات محصول تمام شده است";
+
 export default function Products() {
+  const qc = useQueryClient();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
+  const quota = useQuery({ queryKey: ["quota"], queryFn: api.getQuota });
+  const productQuota = quota.data?.products;
+  const quotaDone = !!productQuota && productQuota.available <= 0;
   const [projectId, setProjectId] = useState("");
   // Fixed provider created by the license activation (hidden from the provider lists).
   const providerId = "builtin-text";
@@ -18,9 +24,12 @@ export default function Products() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (!projectId && projects.data?.length) setProjectId(projects.data[0].id); }, [projects.data, projectId]);
   const products = useQuery({ queryKey: ["wc-products", projectId, search, page], queryFn: () => api.listProducts(projectId, search, page), enabled: !!projectId, retry: false });
+  const productsError = products.error ? errorMessage(products.error) : null;
   const generate = useMutation({
     mutationFn: () => api.generateProductDescription(providerId, selected!.name, keyword, description, projects.data?.find((p) => p.id === projectId)?.defaultLanguage ?? "fa"),
-    onSuccess: (text) => { setDescription(text); setError(null); setMsg("توضیحات تولید شد؛ پیش از ذخیره بررسی کنید."); }, onError: (e) => setError(errorMessage(e)),
+    onSuccess: (text) => { setDescription(text); setError(null); setMsg("توضیحات تولید شد؛ پیش از ذخیره بررسی کنید."); },
+    onError: (e) => setError(errorMessage(e)),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["quota"] }),
   });
   const save = useMutation({
     mutationFn: () => api.saveProductDescription(projectId, selected!.id, description),
@@ -33,7 +42,12 @@ export default function Products() {
       <label className="text-sm">پروژه<select className={`${inputClass} block mt-1`} value={projectId} onChange={(e) => { setProjectId(e.target.value); setSelected(null); setPage(1); }}><option value="">انتخاب پروژه</option>{projects.data?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label className="flex-1 text-sm">جستجوی محصول<input className={`${inputClass} block mt-1`} value={search} onChange={e => {setSearch(e.target.value);setPage(1);}} placeholder="نام محصول" /></label>
     </Card>
-    {products.error && <ErrorBox message={`${errorMessage(products.error)} — اتصال وردپرس و فعال بودن افزونه رابط را بررسی کنید.`} />}
+    {productsError && (productsError.includes("ووکامرس") ? (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 space-y-1">
+        <div className="font-semibold">{productsError}</div>
+        <div className="text-xs text-amber-700">ووکامرس را روی سایت نصب و فعال کنید.</div>
+      </div>
+    ) : <ErrorBox message={`${productsError} — اتصال وردپرس و فعال بودن افزونه رابط را بررسی کنید.`} />)}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card className="space-y-3">
         <h2 className="font-semibold">محصولات سایت ({num(products.data?.total ?? 0)})</h2>
@@ -53,7 +67,12 @@ export default function Products() {
         {selected ? <>
           <h2 className="font-semibold">{selected.name}</h2>
           <label className="text-sm block">کلمه کلیدی برای تولید متن<input className={`${inputClass} block mt-1`} value={keyword} onChange={e=>setKeyword(e.target.value)} /></label>
-          <div className="flex gap-2"><Button className="ai-btn" disabled={!providerId || !keyword.trim() || generate.isPending} onClick={() => generate.mutate()}>{generate.isPending ? "در حال تولید…" : "تولید توضیحات با AI"}</Button></div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span title={quotaDone ? QUOTA_DONE_TIP : undefined} className="inline-flex">
+              <Button className="ai-btn" disabled={!providerId || !keyword.trim() || generate.isPending || quotaDone} title={quotaDone ? QUOTA_DONE_TIP : undefined} onClick={() => generate.mutate()}>{generate.isPending ? "در حال تولید…" : "تولید توضیحات با AI"}</Button>
+            </span>
+            <span className="text-xs text-slate-500">سهمیه‌ی باقی‌مانده‌ی توضیحات محصول: <b className="text-brand-700">{productQuota ? `${num(productQuota.remaining)} از ${num(productQuota.total)}` : "…"}</b></span>
+          </div>
           <label className="text-sm block">توضیحات تکمیلی<textarea className={`${inputClass} block mt-1 min-h-80`} value={description} onChange={e=>setDescription(e.target.value)} /></label>
           <ErrorBox message={error}/>{msg && <p className="text-sm text-emerald-700">{msg}</p>}
           <Button disabled={save.isPending || !description.trim()} onClick={() => save.mutate()}>{save.isPending ? "در حال ذخیره…" : "ذخیره فقط توضیحات محصول"}</Button>
