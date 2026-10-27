@@ -9,6 +9,8 @@ pub mod keywords;
 pub mod license;
 pub mod logs;
 pub mod projects;
+pub mod quota;
+pub mod single;
 pub mod qc;
 pub mod secondary;
 pub mod system;

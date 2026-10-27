@@ -5,6 +5,8 @@ pub mod image_providers;
 pub mod keywords;
 pub mod license;
 pub mod projects;
+pub mod quota;
+pub mod single;
 pub mod system;
 pub mod templates;
 pub mod titles;

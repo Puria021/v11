@@ -87,6 +87,8 @@ struct Ctx {
 
 async fn setup(per_call: usize, cap: usize) -> Ctx {
     let state = AppState::for_tests(Arc::new(MemorySecretStore::new())).await.unwrap();
+    // These tests exercise 60-article campaigns; lift the license quota for them.
+    sqlx::query("UPDATE quota_usage SET article_total=1000").execute(&state.db).await.unwrap();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))

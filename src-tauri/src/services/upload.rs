@@ -68,10 +68,10 @@ fn insert_inline_images(content: &str, images: &[(String, String)], interval: us
 /// Choose relevant previously published articles on the same WordPress site.
 /// Never link unrelated old posts just to reach a quota.
 fn related_links(keyword: &str, title: &str, published: &[(String, String)]) -> String {
-    let mut scored: Vec<(f64, &str, &str)> = published.iter().filter_map(|(name, url)| {
+    // Always link up to 3 published articles: the most similar ones first, whatever their score.
+    let mut scored: Vec<(f64, &str, &str)> = published.iter().filter(|(name, _)| name != title).map(|(name, url)| {
         let score = similarity(keyword, name).max(similarity(title, name));
-        // Restrict to meaningfully related titles, not merely a common stop word.
-        if score >= 0.24 && name != title { Some((score, name.as_str(), url.as_str())) } else { None }
+        (score, name.as_str(), url.as_str())
     }).collect();
     scored.sort_by(|a,b| b.0.total_cmp(&a.0));
     scored.truncate(3);
@@ -95,6 +95,14 @@ async fn is_uploaded(state: &AppState, plan_id: &str) -> AppResult<bool> {
 
 /// Sets the WordPress publish date (UTC ISO 8601). The article is still created as a draft
 /// unless it is published directly. Null clears the date. Uploads are never delayed by it.
+/// Maps the chosen publish time to a WordPress status and GMT date.
+/// No time: draft. Future time: scheduled by WordPress itself. Past time: published with that date.
+async fn wp_target(state: &AppState, at: Option<&str>) -> AppResult<(String, Option<String>)> {
+    let Some(value) = at.and_then(|s| s.get(..19)) else { return Ok(("draft".into(), None)) };
+    let (future,): (i64,) = sqlx::query_as("SELECT ? > strftime('%Y-%m-%dT%H:%M:%S','now')").bind(value).fetch_one(&state.db).await?;
+    Ok((if future == 1 { "future" } else { "publish" }.into(), Some(value.to_string())))
+}
+
 pub async fn set_schedule(state: &AppState, campaign_id: &str, plan_id: Option<&str>, upload_at: Option<&str>) -> AppResult<usize> {
     campaigns::get(state, campaign_id).await?;
     let at = upload_at.filter(|s| !s.trim().is_empty());
@@ -107,28 +115,46 @@ pub async fn set_schedule(state: &AppState, campaign_id: &str, plan_id: Option<&
         if parsed.and_then(|r| r.0).is_none() { return Err(AppError::validation("تاریخ نامعتبر است.")); }
     }
     let ids: Vec<(String,)> = if let Some(id) = plan_id {
-        sqlx::query_as("SELECT id FROM article_plans WHERE id=? AND campaign_id=? AND status NOT IN ('DRAFT_CREATED','UPLOADING')")
+        sqlx::query_as("SELECT id FROM article_plans WHERE id=? AND campaign_id=? AND status NOT IN ('UPLOADING')")
             .bind(id).bind(campaign_id).fetch_all(&state.db).await?
     } else {
-        sqlx::query_as("SELECT id FROM article_plans WHERE campaign_id=? AND status NOT IN ('DRAFT_CREATED','UPLOADING')")
+        sqlx::query_as("SELECT id FROM article_plans WHERE campaign_id=? AND status NOT IN ('UPLOADING')")
             .bind(campaign_id).fetch_all(&state.db).await?
     };
     if ids.is_empty() { return Err(AppError::validation("مقاله قابل زمان‌بندی پیدا نشد.")); }
+    let mut changed = 0;
     for (id,) in &ids {
-        sqlx::query("UPDATE article_plans SET upload_at=? WHERE id=?")
-            .bind(at).bind(id).execute(&state.db).await?;
-        sqlx::query("UPDATE jobs SET run_after=NULL WHERE plan_id=? AND type='upload_wp' AND status IN ('PENDING','RETRY_PENDING')")
-            .bind(id).execute(&state.db).await?;
+        sqlx::query("UPDATE article_plans SET upload_at=? WHERE id=?").bind(at).bind(id).execute(&state.db).await?;
+        let row: Option<(String, String, Option<i64>, Option<String>)> = sqlx::query_as(
+            "SELECT p.status, p.project_id, w.wordpress_post_id, w.upload_status FROM article_plans p LEFT JOIN wordpress_posts w ON w.plan_id = p.id WHERE p.id=?",
+        ).bind(id).fetch_optional(&state.db).await?;
+        let Some((status, project_id, wp_id, upload_status)) = row else { continue };
+        if upload_status.as_deref() == Some("UPLOADED") {
+            // Already in WordPress: change its status and date there.
+            if let Some(wp_id) = wp_id {
+                let (wp_status, date) = wp_target(state, at).await?;
+                let (client, _) = wp::build_client(state, &project_id).await?;
+                client.set_post_status(wp_id, &wp_status, date.as_deref()).await.map_err(|e| wp::refine(state, e))?;
+                sqlx::query("UPDATE wordpress_posts SET wp_status=? WHERE plan_id=?").bind(&wp_status).bind(id).execute(&state.db).await?;
+                changed += 1;
+            }
+        } else if matches!(status.as_str(), "READY_TO_UPLOAD" | "FAILED") {
+            // Not in WordPress yet: create it now with this publish time (it is scheduled there, not here).
+            if request_upload(state, id, false).await.is_ok() { changed += 1; }
+        } else {
+            changed += 1;
+        }
     }
     state.wake.notify_one();
-    Ok(ids.len())
+    Ok(changed)
 }
 
 /// Queues an upload. `publish_now` selects direct publishing instead of a draft; it is stored on the plan
 /// so retries keep the same mode.
 pub async fn request_upload(state: &AppState, plan_id: &str, publish_now: bool) -> AppResult<()> {
-    sqlx::query("UPDATE article_plans SET publish_now=? WHERE id=?")
-        .bind(publish_now as i64).bind(plan_id).execute(&state.db).await?;
+    // Immediate publishing ignores any time that was set before.
+    sqlx::query("UPDATE article_plans SET publish_now=?, upload_at=CASE WHEN ? = 1 THEN NULL ELSE upload_at END WHERE id=?")
+        .bind(publish_now as i64).bind(publish_now as i64).bind(plan_id).execute(&state.db).await?;
     enqueue_upload(state, plan_id).await
 }
 
@@ -168,7 +194,23 @@ pub async fn enqueue_upload(state: &AppState, plan_id: &str) -> AppResult<()> {
 }
 
 /// Queues every article that is ready. Returns how many were queued.
-pub async fn enqueue_campaign(state: &AppState, campaign_id: &str, confirm: bool) -> AppResult<i64> {
+/// Publishes one uploaded article now (WordPress status "publish" with today's date).
+pub async fn publish_uploaded_now(state: &AppState, plan_id: &str) -> AppResult<()> {
+    let row: Option<(String, i64)> = sqlx::query_as(
+        "SELECT p.project_id, w.wordpress_post_id FROM article_plans p JOIN wordpress_posts w ON w.plan_id = p.id
+         WHERE p.id=? AND w.upload_status='UPLOADED' AND w.wordpress_post_id IS NOT NULL",
+    ).bind(plan_id).fetch_optional(&state.db).await?;
+    let (project_id, wp_id) = row.ok_or_else(|| AppError::conflict("این مقاله هنوز در وردپرس ساخته نشده است."))?;
+    let (now,): (String,) = sqlx::query_as("SELECT strftime('%Y-%m-%dT%H:%M:%S','now')").fetch_one(&state.db).await?;
+    let (client, _) = wp::build_client(state, &project_id).await?;
+    client.set_post_status(wp_id, "publish", Some(&now)).await.map_err(|e| wp::refine(state, e))?;
+    sqlx::query("UPDATE article_plans SET upload_at=NULL WHERE id=?").bind(plan_id).execute(&state.db).await?;
+    sqlx::query("UPDATE wordpress_posts SET wp_status='publish' WHERE plan_id=?").bind(plan_id).execute(&state.db).await?;
+    generation::emit_progress(state, &project_id).await;
+    Ok(())
+}
+
+pub async fn enqueue_campaign(state: &AppState, campaign_id: &str, confirm: bool, publish_now: bool) -> AppResult<i64> {
     if !confirm {
         return Err(AppError::validation("ساخت Draft نیاز به تأیید صریح دارد."));
     }
@@ -182,7 +224,7 @@ pub async fn enqueue_campaign(state: &AppState, campaign_id: &str, confirm: bool
     }
     let mut n = 0;
     for (id,) in ids {
-        match request_upload(state, &id, false).await {
+        match request_upload(state, &id, publish_now).await {
             Ok(()) => n += 1,
             Err(e) if e.code == "CONFLICT" || e.code == "DUPLICATE_BLOCKED" => {}
             Err(e) => return Err(e),
@@ -232,8 +274,7 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
     let faq: Vec<FaqItem> = serde_json::from_str(&faq_json).unwrap_or_default();
     let (publish_now, publish_at): (i64, Option<String>) = sqlx::query_as("SELECT publish_now, upload_at FROM article_plans WHERE id=?")
         .bind(plan_id).fetch_one(&state.db).await?;
-    // upload_at is stored as UTC "YYYY-MM-DDTHH:MM:SS.mmmZ"; WordPress expects the GMT part without zone suffix.
-    let date_gmt = publish_at.as_deref().and_then(|s| s.get(..19)).map(str::to_string);
+    let (wp_status, date_gmt) = if publish_now != 0 { ("publish".to_string(), None) } else { wp_target(state, publish_at.as_deref()).await? };
     let campaign = campaigns::get(state, &campaign_id).await?;
     let (schema, language, link_enabled) = match &campaign.template_id {
         Some(t) => templates::get(state, t).await.map(|t| (t.faq_schema, t.language, t.internal_linking)).unwrap_or((false, "fa".into(), false)),
@@ -344,7 +385,7 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
             generation::guard_cancel(state, job).await?;
             client
                 .create_post(NewPost {
-                    status: if publish_now != 0 { "publish" } else { "draft" },
+                    status: wp_status.clone(),
                     date_gmt,
                     title: title.clone(),
                     content: assemble_post_html(&final_content_html, &faq, schema, &language),
@@ -377,11 +418,12 @@ async fn upload_inner(state: &AppState, job: &Job, plan_id: &str) -> Result<(), 
     }
 
     sqlx::query(
-        "UPDATE wordpress_posts SET upload_status='UPLOADED', wordpress_post_id=?, wordpress_url=?, last_error=NULL,
+        "UPDATE wordpress_posts SET upload_status='UPLOADED', wordpress_post_id=?, wordpress_url=?, last_error=NULL, wp_status=?,
          uploaded_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE plan_id=?",
     )
     .bind(post.id)
     .bind(&post.link)
+    .bind(&wp_status)
     .bind(plan_id)
     .execute(&state.db)
     .await?;

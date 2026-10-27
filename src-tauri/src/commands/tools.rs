@@ -13,8 +13,13 @@ pub async fn upload_to_wordpress(state: State<'_, AppState>, plan_id: String, pu
 }
 
 #[tauri::command]
-pub async fn upload_campaign(state: State<'_, AppState>, campaign_id: String, confirm: bool) -> AppResult<i64> {
-    upload::enqueue_campaign(&state, &campaign_id, confirm).await
+pub async fn upload_campaign(state: State<'_, AppState>, campaign_id: String, confirm: bool, publish_now: Option<bool>) -> AppResult<i64> {
+    upload::enqueue_campaign(&state, &campaign_id, confirm, publish_now.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn publish_uploaded_now(state: State<'_, AppState>, plan_id: String) -> AppResult<()> {
+    upload::publish_uploaded_now(&state, &plan_id).await
 }
 
 #[tauri::command]

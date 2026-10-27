@@ -69,6 +69,8 @@ pub async fn activate(state: &AppState, api_key: &str) -> AppResult<()> {
                 .execute(&state.db)
                 .await?;
             attach_fixed_defaults(state).await?;
+            // A newly activated license starts with a fresh quota.
+            crate::services::quota::reset(state).await?;
             Ok(())
         }
         (t, i) => {

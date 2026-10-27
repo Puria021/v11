@@ -27,6 +27,14 @@ pub struct CampaignView {
     pub approved_count: i64,
     /// Articles whose text and images are ready (or already drafted in WordPress).
     pub complete_count: i64,
+    /// `campaign` or `single` (single-article tab).
+    pub kind: String,
+    /// Images per article for this campaign; `None` uses the template default.
+    pub image_count: Option<i64>,
+    pub external_url: Option<String>,
+    pub external_title: Option<String>,
+    pub external_follow: i64,
+    pub cta_text: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,19 +56,20 @@ const SELECT: &str = "SELECT c.id, c.project_id, p.name AS project_name, c.name,
   (SELECT COUNT(*) FROM keywords k WHERE k.campaign_id=c.id AND k.role='secondary') AS secondary_count,
   (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id) AS plan_count,
   (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id AND EXISTS (SELECT 1 FROM article_titles t WHERE t.plan_id=a.id AND t.state='APPROVED')) AS approved_count,
-  (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id AND a.status IN ('READY_TO_UPLOAD','UPLOADING','DRAFT_CREATED')) AS complete_count
+  (SELECT COUNT(*) FROM article_plans a WHERE a.campaign_id=c.id AND a.status IN ('READY_TO_UPLOAD','UPLOADING','DRAFT_CREATED')) AS complete_count,
+  c.kind, c.image_count, c.external_url, c.external_title, c.external_follow, c.cta_text
   FROM campaigns c JOIN projects p ON p.id = c.project_id";
 
 pub async fn list(state: &AppState, project_id: Option<&str>) -> AppResult<Vec<CampaignView>> {
     let rows = match project_id {
         Some(pid) => {
-            sqlx::query_as::<_, CampaignView>(&format!("{SELECT} WHERE c.project_id = ? ORDER BY c.created_at DESC, c.rowid DESC"))
+            sqlx::query_as::<_, CampaignView>(&format!("{SELECT} WHERE c.project_id = ? AND c.kind = 'campaign' ORDER BY c.created_at DESC, c.rowid DESC"))
                 .bind(pid)
                 .fetch_all(&state.db)
                 .await?
         }
         None => {
-            sqlx::query_as::<_, CampaignView>(&format!("{SELECT} ORDER BY c.created_at DESC, c.rowid DESC"))
+            sqlx::query_as::<_, CampaignView>(&format!("{SELECT} WHERE c.kind = 'campaign' ORDER BY c.created_at DESC, c.rowid DESC"))
                 .fetch_all(&state.db)
                 .await?
         }
@@ -89,10 +98,17 @@ pub async fn create(state: &AppState, input: CreateCampaign) -> AppResult<Campai
             .fetch_optional(&state.db)
             .await?;
     let (pc, pl, pai, default_count) = proj.ok_or_else(|| AppError::not_found("پروژه پیدا نشد."))?;
-    let target = input.target_count.unwrap_or(default_count);
-    if !(1..=200).contains(&target) {
-        return Err(AppError::validation("تعداد مقالات باید بین ۱ تا ۲۰۰۰ باشد."));
+    let requested = input.target_count.unwrap_or(default_count);
+    if !(1..=200).contains(&requested) {
+        return Err(AppError::validation("تعداد مقالات باید بین ۱ تا ۲۰۰ باشد."));
     }
+    // The license quota caps every campaign: articles already written or promised elsewhere are not reusable.
+    let available = super::quota::article_available(state).await?;
+    if available <= 0 {
+        return Err(AppError::validation("سهمیه‌ی مقالات این لایسنس تمام شده است؛ با لایسنس جدید ادامه دهید."));
+    }
+    let target = requested.min(available);
+    let epoch = super::quota::current_epoch(state).await?;
     let country = input.country.map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty()).unwrap_or(pc);
     let language = input.language.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty()).unwrap_or(pl);
     // Fixed built-in providers are the defaults, but only once the license has created them (FK).
@@ -107,8 +123,8 @@ pub async fn create(state: &AppState, input: CreateCampaign) -> AppResult<Campai
     let ai = input.ai_provider_id.filter(|s| !s.is_empty()).or(pai).or(builtin_text.map(|r| r.0));
     let id = ulid::Ulid::new().to_string();
     sqlx::query(
-        "INSERT INTO campaigns (id, project_id, name, target_count, country, language, ai_provider_id, wizard_step)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 2)",
+        "INSERT INTO campaigns (id, project_id, name, target_count, country, language, ai_provider_id, wizard_step, quota_epoch)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 2, ?)",
     )
     .bind(&id)
     .bind(&input.project_id)
@@ -117,6 +133,7 @@ pub async fn create(state: &AppState, input: CreateCampaign) -> AppResult<Campai
     .bind(&country)
     .bind(&language)
     .bind(&ai)
+    .bind(epoch)
     .execute(&state.db)
     .await?;
     if let Some((image_id,)) = builtin_image {

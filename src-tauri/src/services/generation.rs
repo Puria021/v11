@@ -34,6 +34,15 @@ struct Ctx {
     target_audience: String,
     phone: String,
     primaries: Vec<String>,
+    /// Keywords the user selected in step 2 (candidates marked as selected).
+    topics: Vec<String>,
+}
+
+impl Ctx {
+    /// Images per article: the campaign's own count (single-article tab) or the template default.
+    fn image_count(&self) -> i64 {
+        self.campaign.image_count.unwrap_or(self.template.image_count)
+    }
 }
 
 async fn load_ctx(state: &AppState, plan_id: &str) -> AppResult<Ctx> {
@@ -59,6 +68,12 @@ async fn load_ctx(state: &AppState, plan_id: &str) -> AppResult<Ctx> {
         .bind(&campaign_id)
         .fetch_all(&state.db)
         .await?;
+    let topic_rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT keyword FROM keywords WHERE campaign_id=? AND role='candidate' AND is_selected=1 ORDER BY rowid",
+    )
+    .bind(&campaign_id)
+    .fetch_all(&state.db)
+    .await?;
     Ok(Ctx {
         campaign,
         template,
@@ -75,6 +90,7 @@ async fn load_ctx(state: &AppState, plan_id: &str) -> AppResult<Ctx> {
         target_audience,
         phone,
         primaries: prim.into_iter().map(|p| p.0).collect(),
+        topics: topic_rows.into_iter().map(|t| t.0).collect(),
     })
 }
 
@@ -97,6 +113,12 @@ fn build_prompts(c: &Ctx) -> (String, String) {
     vars.insert("internal_links", String::new());
     vars.insert("faq", faq_note.clone());
 
+    let home_anchor = c.primaries.first().cloned().unwrap_or_else(|| c.keyword.clone());
+    let home_rule = if c.site_url.trim().is_empty() {
+        String::new()
+    } else {
+        format!("Use the main keyword \"{home_anchor}\" exactly once as a hyperlink to the verified homepage {home}; do not link the homepage again and do not invent URLs. ", home = c.site_url.trim())
+    };
     let system = format!(
         "{sys}\n\nWrite in {lang}. You are writing for the website \"{brand}\".\n\
          OUTPUT CONTRACT: reply with ONLY one JSON object (no code fences, no commentary) with these keys:\n\
@@ -109,8 +131,8 @@ fn build_prompts(c: &Ctx) -> (String, String) {
          - \"meta_description\": up to 155 characters\n\
          - \"faq\": array of {{\"q\":\"...\",\"a\":\"...\"}} ({faq})\n\
          - \"image_prompt\": an English prompt for a featured image (no text inside the image)\n\
-         Use the brand name as a hyperlink to the verified homepage {homepage}; do not invent URLs. Never invent statistics, prices or quotes.",
-        homepage = c.site_url,
+         {home_rule}Never invent statistics, prices or quotes.",
+        home_rule = home_rule,
         sys = templates::render(&t.system_instructions, &vars),
         lang = language_name(&t.language),
         faq = if t.faq_enabled { format!("exactly {} items", t.faq_count) } else { "empty array".into() },
@@ -121,6 +143,12 @@ fn build_prompts(c: &Ctx) -> (String, String) {
     u.push_str(&format!("Focus (secondary) keyword: {}\n", c.keyword));
     if !c.primaries.is_empty() {
         u.push_str(&format!("Main topic keywords: {}\n", c.primaries.join(", ")));
+    }
+    if !c.topics.is_empty() {
+        u.push_str(&format!(
+            "Related keywords selected for this article's topic (use each one naturally in the body where it fits, and make sure the article covers them): {}\n",
+            c.topics.join(", ")
+        ));
     }
     if let Some(i) = &c.intent {
         u.push_str(&format!("Search intent: {i}\n"));
@@ -158,19 +186,32 @@ fn build_prompts(c: &Ctx) -> (String, String) {
     let kw = c.keyword.as_str();
     u.push_str(&format!(
         "\nMANDATORY SEO RULES (every rule must be satisfied, the output is rejected otherwise):\n\
-         - Use the exact focus phrase \"{kw}\" (same word order, complete phrase, never split) between {min} and {max} times in the body; aim for about {mid}.\n\
+         - Use the exact focus phrase \"{kw}\" (same word order, complete phrase, never split) about {mid} times in the body.\n\
          - The exact focus phrase must appear at least once within the first 150 words of the body.\n\
          - Keep every paragraph at most 80 words. Use many short paragraphs instead of long blocks.\n\
          - Include at least 2 external links (<a href=\"https://...\">) to relevant, authoritative sources: official organizations, standards bodies, encyclopedias, major research or industry publications. Use only real, stable homepage or major-section URLs you are certain exist; never invent deep links. Never link to competitor websites, including Iranian competitors, and never use rel=\"nofollow\".\n\
          - Where it fits naturally, use numbers in some headings (for example \"۵ روش ...\" or \"۳ اشتباه رایج ...\").\n",
-        min = qc::KEYWORD_MIN_USES, max = qc::KEYWORD_MAX_USES, mid = (qc::KEYWORD_MIN_USES + qc::KEYWORD_MAX_USES) / 2,
+        mid = qc::KEYWORD_TARGET,
     ));
     if !t.forbidden_topics.trim().is_empty() {
         u.push_str(&format!("\nDo NOT mention or discuss:\n{}\n", t.forbidden_topics));
     }
-    if !t.cta.trim().is_empty() {
-        u.push_str(&format!("\nEnd with this call to action: {}\n", templates::render(&t.cta, &vars)));
+    let single = c.campaign.kind == "single";
+    if single {
+        if let Some(url) = c.campaign.external_url.as_deref() {
+            let anchor = c.campaign.external_title.clone().filter(|s| !s.trim().is_empty());
+            let anchor_text = anchor.unwrap_or_else(|| format!("a short natural anchor text in {}", language_name(&t.language)));
+            u.push_str(&format!(
+                "\nRequired external link: include exactly one link inside the body, placed naturally in a sentence, written as <a href=\"{url}\">{anchor_text}</a>. Use exactly this URL. This link counts as one of the external links required above.\n"
+            ));
+        }
+    }
+    let cta_text = if single { c.campaign.cta_text.clone().unwrap_or_default() } else { t.cta.clone() };
+    if !cta_text.trim().is_empty() {
+        u.push_str(&format!("\nEnd with this call to action: {}\n", templates::render(&cta_text, &vars)));
         if !phone_link.is_empty() { u.push_str(&format!("All phone call CTA links MUST use href=\"tel:<digits>\", specifically: {phone_link}. Do not use website URLs or wa.me as the call link.\n")); }
+    } else if single {
+        u.push_str(&format!("\nEnd with a short, persuasive call to action of your own, written in {}.\n", language_name(&t.language)));
     }
     if t.faq_enabled {
         u.push_str(&format!("\n{faq_note}\n"));
@@ -253,6 +294,90 @@ fn parse_faq(v: &Value) -> Vec<FaqItem> {
         .unwrap_or_default()
 }
 
+/// Gives every anchor pointing at `url` the chosen rel: nofollow when `follow` is false.
+fn set_link_rel(html: &str, url: &str, follow: bool) -> String {
+    let escaped = url.replace('&', "&amp;");
+    let mut out = String::with_capacity(html.len() + 32);
+    let mut rest = html;
+    while let Some(start) = rest.find("<a ") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let Some(end) = after.find('>') else {
+            out.push_str(after);
+            return out;
+        };
+        let tag = &after[..end];
+        if tag.contains(url) || tag.contains(&escaped) {
+            // Drop any rel attribute the sanitizer added, then write ours.
+            let mut cleaned = String::new();
+            let mut tail = tag;
+            while let Some(p) = tail.find(" rel=\"") {
+                cleaned.push_str(&tail[..p]);
+                let remain = &tail[p + 6..];
+                match remain.find('"') {
+                    Some(q) => tail = &remain[q + 1..],
+                    None => { tail = ""; break; }
+                }
+            }
+            cleaned.push_str(tail);
+            let rel = if follow { " rel=\"noopener noreferrer\"" } else { " rel=\"noopener noreferrer nofollow\"" };
+            out.push_str(&cleaned);
+            out.push_str(rel);
+        } else {
+            out.push_str(tag);
+        }
+        out.push('>');
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Turns the first plain-text occurrence of `phrase` (not inside a tag, a link or a heading) into a link to `href`.
+fn link_first_plain(html: &str, phrase: &str, href: &str) -> Option<String> {
+    let phrase = phrase.trim();
+    if phrase.is_empty() {
+        return None;
+    }
+    // Mark bytes that must not be touched: tags, existing links and headings.
+    let mut protected = vec![false; html.len()];
+    let mut in_a = false;
+    let mut in_h = false;
+    let mut i = 0;
+    while i < html.len() {
+        let rest = &html[i..];
+        if rest.starts_with('<') {
+            let end = rest.find('>').map(|e| i + e + 1).unwrap_or(html.len());
+            let tag = html[i..end].to_ascii_lowercase();
+            if tag.starts_with("<a ") || tag == "<a>" {
+                in_a = true;
+            } else if tag.starts_with("</a") {
+                in_a = false;
+            } else if tag.len() == 4 && tag.starts_with("<h") && tag.as_bytes()[2].is_ascii_digit() {
+                in_h = true;
+            } else if tag.starts_with("</h") && tag.len() == 5 {
+                in_h = false;
+            }
+            for flag in protected.iter_mut().take(end).skip(i) {
+                *flag = true;
+            }
+            i = end;
+            continue;
+        }
+        if in_a || in_h {
+            protected[i] = true;
+        }
+        i += rest.chars().next().map_or(1, |ch| ch.len_utf8());
+    }
+    for (pos, _) in html.match_indices(phrase) {
+        let end = pos + phrase.len();
+        if protected[pos..end].iter().all(|p| !p) {
+            return Some(format!("{}<a href=\"{href}\">{phrase}</a>{}", &html[..pos], &html[end..]));
+        }
+    }
+    None
+}
+
 fn assemble(c: &Ctx, v: &Value, others: &[String]) -> Result<Assembled, Vec<String>> {
     let obj = match v {
         Value::Object(_) => v.clone(),
@@ -263,7 +388,21 @@ fn assemble(c: &Ctx, v: &Value, others: &[String]) -> Result<Assembled, Vec<Stri
     if content.trim().is_empty() {
         return Err(vec!["فیلد content خالی یا موجود نیست.".into()]);
     }
-    let content_html = qc::sanitize_html(content);
+    let mut content_html = qc::sanitize_html(content);
+    if let Some(url) = c.campaign.external_url.as_deref() {
+        let escaped = url.replace('&', "&amp;");
+        if !content_html.contains(url) && !content_html.contains(&escaped) {
+            return Err(vec!["لینک خارجی تعیین‌شده در متن مقاله قرار نگرفته است.".into()]);
+        }
+        content_html = set_link_rel(&content_html, url, c.campaign.external_follow != 0);
+    }
+    let home = c.site_url.trim().trim_end_matches('/');
+    if !home.is_empty() && !content_html.contains(home) {
+        let anchor = c.primaries.first().cloned().unwrap_or_else(|| c.keyword.clone());
+        if let Some(linked) = link_first_plain(&content_html, &anchor, home) {
+            content_html = linked;
+        }
+    }
     let faq = parse_faq(&obj);
     let report = qc::validate(&QcInput {
         content_html: &content_html,
@@ -286,7 +425,14 @@ fn assemble(c: &Ctx, v: &Value, others: &[String]) -> Result<Assembled, Vec<Stri
     let slug = qc::slugify(&c.keyword);
     if slug.is_empty() { return Err(vec!["کلمه کلیدی برای ساخت اسلاگ معتبر نیست.".into()]); }
     let meta_title = { let m = s("meta_title"); qc::truncate_chars(if m.is_empty() { &c.title } else { &m }, 70) };
-    let meta_description = { let m = s("meta_description"); qc::truncate_chars(if m.is_empty() { &excerpt } else { &m }, 170) };
+    // The exact focus keyword must appear in the meta description (SEO plugins check it).
+    let meta_description = {
+        let m = s("meta_description");
+        let base = if m.is_empty() { excerpt.clone() } else { m };
+        let kw = c.keyword.trim();
+        let text = if kw.is_empty() || base.contains(kw) { base } else { format!("{kw}: {base}") };
+        qc::truncate_chars(&text, 170)
+    };
     let image_prompt = {
         let p = s("image_prompt");
         if p.is_empty() { format!("A clean, modern featured image illustrating: {}", c.keyword) } else { p }
@@ -321,6 +467,10 @@ pub async fn run_content(state: &AppState, job: &Job) -> Result<(), AppError> {
     guard_cancel(state, job).await?;
     let ctx = load_ctx(state, plan_id).await?;
     let provider = campaigns::require_ai_provider(&ctx.campaign)?;
+    let (has_content,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM article_contents WHERE plan_id=?").bind(plan_id).fetch_one(&state.db).await?;
+    if has_content == 0 && crate::services::quota::view(state).await?.articles.remaining <= 0 {
+        return Err(AppError::validation("سهمیه‌ی مقالات این لایسنس تمام شده است."));
+    }
     set_plan_status(state, plan_id, "GENERATING").await;
     emit_progress(state, &ctx.campaign.id).await;
 
@@ -357,6 +507,7 @@ pub async fn run_content(state: &AppState, job: &Job) -> Result<(), AppError> {
 
 async fn save_content(state: &AppState, ctx: &Ctx, a: &Assembled, provider_id: &str, raw: &Value) -> AppResult<()> {
     let model: (String,) = sqlx::query_as("SELECT model FROM ai_providers WHERE id=?").bind(provider_id).fetch_one(&state.db).await?;
+    let had_content: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM article_contents WHERE plan_id=?").bind(&ctx.plan_id).fetch_one(&state.db).await?;
     sqlx::query(
         "INSERT INTO article_contents (id, plan_id, title, slug, excerpt, content_html, meta_title, meta_description, faq_json,
            image_prompt, word_count, validation_json, raw_ai_json, provider_id, model)
@@ -385,9 +536,12 @@ async fn save_content(state: &AppState, ctx: &Ctx, a: &Assembled, provider_id: &
     .bind(&model.0)
     .execute(&state.db)
     .await?;
+    if had_content.0 == 0 {
+        crate::services::quota::consume_article(state).await?;
+    }
     sqlx::query("UPDATE article_plans SET last_error=NULL, failed_stage=NULL WHERE id=?").bind(&ctx.plan_id).execute(&state.db).await?;
 
-    let wants_image = ctx.template.image_count > 0 && ctx.campaign.image_provider_id.is_some();
+    let wants_image = ctx.image_count() > 0 && ctx.campaign.image_provider_id.is_some();
     if wants_image {
         set_plan_status(state, &ctx.plan_id, "CONTENT_GENERATED").await;
         queue::enqueue(state, NewJob {
@@ -463,7 +617,7 @@ pub async fn run_image(state: &AppState, job: &Job) -> Result<(), AppError> {
         .map(|(w, h)| (w.parse::<i64>().ok(), h.parse::<i64>().ok())).unwrap_or((None, None));
     // Regenerate as a complete set; each image gets a distinct prompt and filename.
     // Do not discard previous results until the replacement set is generated.
-    let count = ctx.template.image_count.clamp(1, 10);
+    let count = ctx.image_count().clamp(1, 10);
     let mut generated = Vec::new();
     for ix in 0..count {
         guard_cancel(state, job).await?;
@@ -533,7 +687,8 @@ pub async fn start(state: &AppState, campaign_id: &str, confirm: bool) -> AppRes
     }
     let template = templates::get(state, templates::ARTICLE_TEMPLATE_ID).await?;
     campaigns::require_ai_provider(&c)?;
-    if template.image_count > 0 && c.image_provider_id.is_none() {
+    let image_count = c.image_count.unwrap_or(template.image_count);
+    if image_count > 0 && c.image_provider_id.is_none() {
         let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM image_providers WHERE id=?")
             .bind(crate::services::license::IMAGE_PROVIDER_ID)
             .fetch_optional(&state.db)
@@ -557,7 +712,7 @@ pub async fn start(state: &AppState, campaign_id: &str, confirm: bool) -> AppRes
         if has_content == 0 {
             set_plan_status(state, &pid, "QUEUED").await;
             if enqueue_for(state, &pid, &c.project_id, campaign_id, "content").await? { queued += 1; }
-        } else if template.image_count > 0 && has_image == 0 {
+        } else if image_count > 0 && has_image == 0 {
             set_plan_status(state, &pid, "CONTENT_GENERATED").await;
             if enqueue_for(state, &pid, &c.project_id, campaign_id, "image").await? { queued += 1; }
         } else {
@@ -694,9 +849,10 @@ async fn scalar(state: &AppState, sql: &str, id: &str) -> i64 {
 pub async fn progress(state: &AppState, campaign_id: &str) -> AppResult<Progress> {
     let c = campaigns::get(state, campaign_id).await?;
     let total = c.plan_count;
-    let image_count = match &c.template_id {
-        Some(t) => templates::get(state, t).await.map(|t| t.image_count).unwrap_or(0),
-        None => 0,
+    let image_count = match (c.image_count, &c.template_id) {
+        (Some(n), _) => n,
+        (None, Some(t)) => templates::get(state, t).await.map(|t| t.image_count).unwrap_or(0),
+        (None, None) => 0,
     };
     let images_enabled = image_count > 0;
     let content = scalar(state, "SELECT COUNT(*) FROM article_contents x JOIN article_plans p ON p.id=x.plan_id WHERE p.campaign_id=?", campaign_id).await;
@@ -749,6 +905,8 @@ pub struct ArticleRow {
     pub wordpress_post_id: Option<i64>,
     pub wordpress_url: Option<String>,
     pub upload_at: Option<String>,
+    /// Remote status of the WordPress post ("draft", "future", "publish").
+    pub wp_status: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -768,6 +926,7 @@ struct ArticleRowRaw {
     wordpress_post_id: Option<i64>,
     wordpress_url: Option<String>,
     upload_at: Option<String>,
+    wp_status: Option<String>,
 }
 
 pub async fn list_articles(state: &AppState, campaign_id: &str) -> AppResult<Vec<ArticleRow>> {
@@ -777,7 +936,8 @@ pub async fn list_articles(state: &AppState, campaign_id: &str) -> AppResult<Vec
                 p.status, p.failed_stage, p.last_error, c.word_count AS word_count,
                 EXISTS(SELECT 1 FROM article_images i WHERE i.plan_id=p.id AND i.local_path IS NOT NULL) AS has_image,
                 p.wp_category_ids_json AS cats, p.tags_json AS tags,
-                w.upload_status AS upload_status, w.wordpress_post_id AS wordpress_post_id, w.wordpress_url AS wordpress_url, p.upload_at
+                w.upload_status AS upload_status, w.wordpress_post_id AS wordpress_post_id, w.wordpress_url AS wordpress_url, p.upload_at,
+                w.wp_status AS wp_status
          FROM article_plans p JOIN keywords k ON k.id=p.keyword_id
          LEFT JOIN article_contents c ON c.plan_id=p.id LEFT JOIN wordpress_posts w ON w.plan_id=p.id
          WHERE p.campaign_id=? ORDER BY p.article_no",
@@ -792,6 +952,7 @@ pub async fn list_articles(state: &AppState, campaign_id: &str) -> AppResult<Vec
             failed_stage: r.failed_stage, last_error: r.last_error, word_count: r.word_count, has_image: r.has_image,
             category_ids: serde_json::from_str(&r.cats).unwrap_or_default(), tags: serde_json::from_str(&r.tags).unwrap_or_default(),
             upload_status: r.upload_status, wordpress_post_id: r.wordpress_post_id, wordpress_url: r.wordpress_url, upload_at: r.upload_at,
+            wp_status: r.wp_status,
         })
         .collect())
 }
@@ -940,4 +1101,37 @@ pub async fn update_queue_settings(state: &AppState, content: i64, image: i64, w
     }
     state.wake.notify_one();
     queue_settings(state).await
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::{link_first_plain, set_link_rel};
+
+    #[test]
+    fn primary_keyword_is_linked_once_outside_existing_links_and_headings() {
+        let html = "<h2>خرید لپ تاپ</h2><p>راهنمای خرید لپ تاپ امروز.</p><p>و باز هم لپ تاپ.</p>";
+        let out = link_first_plain(html, "خرید لپ تاپ", "https://example.com").unwrap();
+        // The heading is skipped, so the first body occurrence is the one that becomes the link.
+        assert!(out.starts_with("<h2>خرید لپ تاپ</h2>"));
+        assert_eq!(out.matches("<a href=\"https://example.com\">").count(), 1);
+        assert!(out.contains("<p>راهنمای <a href=\"https://example.com\">خرید لپ تاپ</a> امروز.</p>"));
+        let out = link_first_plain("<p>خرید لپ تاپ مناسب</p>", "خرید لپ تاپ", "https://example.com").unwrap();
+        assert_eq!(out, "<p><a href=\"https://example.com\">خرید لپ تاپ</a> مناسب</p>");
+    }
+
+    #[test]
+    fn existing_link_text_is_not_linked_again() {
+        let html = "<p><a href=\"https://x.org\">خرید لپ تاپ</a></p>";
+        assert!(link_first_plain(html, "خرید لپ تاپ", "https://example.com").is_none());
+    }
+
+    #[test]
+    fn follow_choice_sets_rel_on_the_chosen_link_only() {
+        let html = "<p><a href=\"https://src.org/a\" rel=\"noopener noreferrer\">منبع</a> و <a href=\"https://other.org\" rel=\"noopener noreferrer\">دیگر</a></p>";
+        let nofollow = set_link_rel(html, "https://src.org/a", false);
+        assert!(nofollow.contains("<a href=\"https://src.org/a\" rel=\"noopener noreferrer nofollow\">"));
+        assert!(nofollow.contains("<a href=\"https://other.org\" rel=\"noopener noreferrer\">"));
+        let follow = set_link_rel(&nofollow, "https://src.org/a", true);
+        assert!(follow.contains("<a href=\"https://src.org/a\" rel=\"noopener noreferrer\">"));
+    }
 }

@@ -110,7 +110,9 @@ pub fn shingle_similarity(a: &str, b: &str) -> f64 {
 }
 
 // Range instead of an exact count: models rarely hit an exact number, and exact-count failures wasted whole articles.
-pub const KEYWORD_MIN_USES: usize = 10;
+/// Target count of the focus phrase in the body. Counts outside [MIN, MAX] are only warnings.
+pub const KEYWORD_TARGET: usize = 30;
+pub const KEYWORD_MIN_USES: usize = 20;
 pub const KEYWORD_MAX_USES: usize = 40;
 const LEAD_WORDS: usize = 150;
 const PARAGRAPH_WARN_WORDS: usize = 100;
@@ -258,9 +260,10 @@ pub fn validate(input: &QcInput) -> QcReport {
     if wc > 0 && !kw_norm.is_empty() {
         let uses = count_phrase(&text, input.keyword);
         if uses < KEYWORD_MIN_USES || uses > KEYWORD_MAX_USES {
-            errors.push(format!(
-                "عبارت «{}» باید به‌صورت کامل بین {} تا {} بار در متن بیاید؛ الان {} بار است.",
-                input.keyword, KEYWORD_MIN_USES, KEYWORD_MAX_USES, uses
+            // Warning only: the article is still saved; the count is shown for review.
+            warnings.push(format!(
+                "عبارت «{}» حدود {} بار باید بیاید؛ الان {} بار است.",
+                input.keyword, KEYWORD_TARGET, uses
             ));
         }
         if count_phrase(&first_words(&text, LEAD_WORDS), input.keyword) == 0 {
@@ -393,9 +396,11 @@ mod tests {
     fn keyword_must_be_used_within_bounds_as_a_whole_phrase() {
         let f = faq();
         let few = validate(&input(&good_html(KEYWORD_MIN_USES - 1), &f, &[]));
-        assert!(few.errors.iter().any(|e| e.contains(&format!("{KEYWORD_MIN_USES} تا {KEYWORD_MAX_USES}"))), "{:?}", few.errors);
+        assert!(few.warnings.iter().any(|e| e.contains(&format!("{KEYWORD_TARGET} بار"))), "{:?}", few.warnings);
+        assert!(few.errors.is_empty(), "keyword count must not block: {:?}", few.errors);
         let many = validate(&input(&good_html(KEYWORD_MAX_USES + 1), &f, &[]));
-        assert!(many.errors.iter().any(|e| e.contains(&format!("{KEYWORD_MIN_USES} تا {KEYWORD_MAX_USES}"))), "{:?}", many.errors);
+        assert!(many.warnings.iter().any(|e| e.contains(&format!("{KEYWORD_TARGET} بار"))), "{:?}", many.warnings);
+        assert!(many.errors.is_empty(), "keyword count must not block: {:?}", many.errors);
         assert!(validate(&input(&good_html(KEYWORD_MAX_USES), &f, &[])).errors.is_empty());
 
         // Only the partial phrase is present: it does not count.
